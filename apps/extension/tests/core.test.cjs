@@ -25,3 +25,24 @@ test('fragment effects stay within the configured cap', () => {
   assert.ok(fragments.every((fragment) => Number.isFinite(fragment.x + fragment.y + fragment.vx + fragment.vy)));
   assert.ok(fragments.every((fragment) => fragment.life > 0 && fragment.size > 0));
 });
+
+test('aiming never produces a stationary shot', () => {
+  const velocity = core.aim({ x: 4, y: 8 }, { x: 4, y: 8 }, 500);
+
+  assert.ok(Math.hypot(velocity.vx, velocity.vy) > 499);
+});
+
+test('text debris contains bounded moving glyphs', () => {
+  const debris = core.createTextDebris('LIVIA', { x: 0, y: 0, w: 100, h: 20 }, () => 0.5);
+
+  assert.deepEqual(debris.map((piece) => piece.glyph), ['L', 'I', 'V', 'I', 'A']);
+  assert.ok(debris.every((piece) => Number.isFinite(piece.x + piece.y + piece.vx + piece.vy + piece.spin)));
+});
+
+test('image glass shards are bounded triangles with outward motion', () => {
+  const shards = core.createGlassShards({ x: 5, y: 10, w: 80, h: 40 }, 100, () => 0.5);
+
+  assert.equal(shards.length, 64);
+  assert.ok(shards.every((shard) => shard.points.length === 3));
+  assert.ok(shards.every((shard) => Math.hypot(shard.vx, shard.vy) > 0));
+});

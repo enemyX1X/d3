@@ -67,10 +67,15 @@
     return false;
   }
 
-  function aim(from, to, speed) {
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const distance = Math.hypot(dx, dy) || 1;
+  function aim(from, to, speed, fallback = { x: 0, y: -1 }) {
+    let dx = to.x - from.x;
+    let dy = to.y - from.y;
+    let distance = Math.hypot(dx, dy);
+    if (distance < 0.001) {
+      dx = fallback.x;
+      dy = fallback.y;
+      distance = Math.hypot(dx, dy) || 1;
+    }
     return {
       vx: (dx / distance) * speed,
       vy: (dy / distance) * speed
@@ -121,7 +126,61 @@
     });
   }
 
-  const api = { FORMS, parse, valid, isSensitive, aim, rebuildProgress, points, hitTest, createFragments };
+  function createTextDebris(text, bounds, random = Math.random) {
+    const glyphs = Array.from(String(text || '')).slice(0, 72);
+    const columns = Math.max(1, Math.ceil(Math.sqrt(glyphs.length * Math.max(0.25, bounds.w / Math.max(bounds.h, 1)))));
+    const rows = Math.max(1, Math.ceil(glyphs.length / columns));
+
+    return glyphs.map((glyph, index) => {
+      const angle = random() * Math.PI * 2;
+      const speed = 80 + random() * 210;
+      return {
+        glyph,
+        x: bounds.x + ((index % columns) + 0.5) * (bounds.w / columns),
+        y: bounds.y + (Math.floor(index / columns) + 0.5) * (bounds.h / rows),
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        rotation: 0,
+        spin: (random() - 0.5) * 9,
+        life: 0.65 + random() * 0.75,
+        size: 9 + random() * 5
+      };
+    });
+  }
+
+  function createGlassShards(bounds, count = 32, random = Math.random) {
+    const shardCount = Math.min(64, Math.max(8, Math.floor(count)));
+    const centerX = bounds.x + bounds.w / 2;
+    const centerY = bounds.y + bounds.h / 2;
+
+    return Array.from({ length: shardCount }, (_, index) => {
+      const angleA = (index / shardCount) * Math.PI * 2;
+      const angleB = ((index + 1) / shardCount) * Math.PI * 2;
+      const radiusA = 0.72 + random() * 0.28;
+      const radiusB = 0.72 + random() * 0.28;
+      const points = [
+        { x: centerX, y: centerY },
+        { x: centerX + Math.cos(angleA) * bounds.w * radiusA, y: centerY + Math.sin(angleA) * bounds.h * radiusA },
+        { x: centerX + Math.cos(angleB) * bounds.w * radiusB, y: centerY + Math.sin(angleB) * bounds.h * radiusB }
+      ];
+      const shardX = points.reduce((sum, point) => sum + point.x, 0) / 3;
+      const shardY = points.reduce((sum, point) => sum + point.y, 0) / 3;
+      const velocity = aim({ x: centerX, y: centerY }, { x: shardX, y: shardY }, 65 + random() * 180);
+
+      return {
+        points,
+        x: 0,
+        y: 0,
+        vx: velocity.vx,
+        vy: velocity.vy,
+        rotation: 0,
+        spin: (random() - 0.5) * 7,
+        life: 0.8 + random() * 0.75
+      };
+    });
+  }
+
+  const api = { FORMS, parse, valid, isSensitive, aim, rebuildProgress, points, hitTest, createFragments, createTextDebris, createGlassShards };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

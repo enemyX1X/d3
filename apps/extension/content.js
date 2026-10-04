@@ -26,9 +26,14 @@
     targets: [],
     projectiles: [],
     particles: [],
+    textDebris: [],
+    glassShards: [],
+    tracers: [],
     score: 0,
     combo: 0,
-    lastHitAt: 0
+    lastHitAt: 0,
+    firing: false,
+    nextMachineShotAt: 0
   };
 
   const overlay = document.createElement('div');
@@ -51,6 +56,7 @@
     state.paused = Boolean(settings.paused);
     state.disabledSites = Array.isArray(settings.disabledSites) ? settings.disabledSites : [];
     state.analysisEnabled = settings.analysisEnabled !== false;
+    if (state.paused || state.disabledSites.includes(location.hostname)) game.firing = false;
     if (!state.analysisEnabled && avatar.mode === 'play') {
       avatar.mode = 'companion';
       game.targets = [];
@@ -184,23 +190,36 @@
     ctx.translate(bounds.x + bounds.w / 2, bounds.y + bounds.h / 2);
     ctx.scale(scale, scale);
     ctx.translate(-(bounds.x + bounds.w / 2), -(bounds.y + bounds.h / 2));
-    ctx.fillStyle = 'rgba(8, 18, 30, 0.58)';
     ctx.strokeStyle = avatar.color;
     ctx.lineWidth = 1.5;
     ctx.shadowColor = avatar.color;
     ctx.shadowBlur = 12;
-    ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
+    if (target.type === 'IMAGE' && target.imageElement?.complete && target.imageElement.naturalWidth > 0) {
+      try {
+        ctx.drawImage(target.imageElement, bounds.x, bounds.y, bounds.w, bounds.h);
+      } catch {
+        ctx.fillStyle = 'rgba(8, 18, 30, 0.58)';
+        ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
+      }
+      ctx.fillStyle = 'rgba(8, 18, 30, 0.18)';
+      ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
+    } else {
+      ctx.fillStyle = 'rgba(8, 18, 30, 0.58)';
+      ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
+    }
     ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
     ctx.shadowBlur = 0;
-    ctx.fillStyle = '#f4fbff';
-    ctx.font = '12px system-ui, sans-serif';
-    ctx.textBaseline = 'top';
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(bounds.x + 4, bounds.y + 4, Math.max(0, bounds.w - 8), Math.max(0, bounds.h - 8));
-    ctx.clip();
-    ctx.fillText(target.text, bounds.x + 6, bounds.y + 6, Math.max(0, bounds.w - 12));
-    ctx.restore();
+    if (target.type !== 'IMAGE') {
+      ctx.fillStyle = '#f4fbff';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textBaseline = 'top';
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(bounds.x + 4, bounds.y + 4, Math.max(0, bounds.w - 8), Math.max(0, bounds.h - 8));
+      ctx.clip();
+      ctx.fillText(target.text, bounds.x + 6, bounds.y + 6, Math.max(0, bounds.w - 12));
+      ctx.restore();
+    }
     ctx.restore();
   }
 
@@ -212,19 +231,45 @@
     game.combo = now - game.lastHitAt < 1400 ? game.combo + 1 : 1;
     game.lastHitAt = now;
     game.score += LIVIACore.points(game.combo);
-    game.particles.push(...LIVIACore.createFragments(target.bounds, 16));
-    if (game.particles.length > 192) game.particles.splice(0, game.particles.length - 192);
+    if (target.type === 'IMAGE') {
+      game.glassShards.push(...LIVIACore.createGlassShards(target.bounds, 32).map((shard) => ({
+        ...shard,
+        bounds: target.bounds,
+        imageElement: target.imageElement
+      })));
+      if (game.glassShards.length > 128) game.glassShards.splice(0, game.glassShards.length - 128);
+    } else {
+      game.textDebris.push(...LIVIACore.createTextDebris(target.text, target.bounds));
+      if (game.textDebris.length > 144) game.textDebris.splice(0, game.textDebris.length - 144);
+    }
+    game.particles.push(...LIVIACore.createFragments(target.bounds, 10));
+    if (game.particles.length > 160) game.particles.splice(0, game.particles.length - 160);
   }
 
   function updateGame(delta, now) {
+    if (game.firing && now >= game.nextMachineShotAt) fireMachineGun(now);
+
     for (let index = game.projectiles.length - 1; index >= 0; index -= 1) {
       const projectile = game.projectiles[index];
+      if (projectile.target && !projectile.target.destroyed) {
+        projectile.targetPoint.x = projectile.target.bounds.x + projectile.target.bounds.w / 2;
+        projectile.targetPoint.y = projectile.target.bounds.y + projectile.target.bounds.h / 2;
+        const desired = LIVIACore.aim(projectile, projectile.targetPoint, 780);
+        const turn = Math.min(1, delta * 5);
+        projectile.vx += (desired.vx - projectile.vx) * turn;
+        projectile.vy += (desired.vy - projectile.vy) * turn;
+      }
       projectile.x += projectile.vx * delta;
       projectile.y += projectile.vy * delta;
       projectile.life -= delta;
-      const target = LIVIACore.hitTest(game.targets, projectile);
-      if (target) {
-        destroyTarget(target, now);
+      const distance = Math.hypot(projectile.targetPoint.x - projectile.x, projectile.targetPoint.y - projectile.y);
+      if (projectile.target && !projectile.target.destroyed && distance < 18) {
+        destroyTarget(projectile.target, now);
+        game.particles.push(...LIVIACore.createFragments({ x: projectile.x - 16, y: projectile.y - 16, w: 32, h: 32 }, 20));
+        game.projectiles.splice(index, 1);
+      } else if ((!projectile.target || projectile.target.destroyed) && distance < 18) {
+        const target = LIVIACore.hitTest(game.targets, projectile.targetPoint);
+        if (target) destroyTarget(target, now);
         game.projectiles.splice(index, 1);
       } else if (projectile.life <= 0) {
         game.projectiles.splice(index, 1);
@@ -239,37 +284,185 @@
       particle.life -= delta;
       if (particle.life <= 0) game.particles.splice(index, 1);
     }
+
+    for (let index = game.textDebris.length - 1; index >= 0; index -= 1) {
+      const piece = game.textDebris[index];
+      piece.x += piece.vx * delta;
+      piece.y += piece.vy * delta;
+      piece.vy += 38 * delta;
+      piece.rotation += piece.spin * delta;
+      piece.life -= delta;
+      if (piece.life <= 0) game.textDebris.splice(index, 1);
+    }
+
+    for (let index = game.glassShards.length - 1; index >= 0; index -= 1) {
+      const shard = game.glassShards[index];
+      shard.x += shard.vx * delta;
+      shard.y += shard.vy * delta;
+      shard.vy += 22 * delta;
+      shard.rotation += shard.spin * delta;
+      shard.life -= delta;
+      if (shard.life <= 0) game.glassShards.splice(index, 1);
+    }
+
+    for (let index = game.tracers.length - 1; index >= 0; index -= 1) {
+      game.tracers[index].life -= delta;
+      if (game.tracers[index].life <= 0) game.tracers.splice(index, 1);
+    }
   }
 
   function drawGame(now) {
     for (const target of game.targets) drawTarget(target, now);
 
     ctx.save();
-    ctx.strokeStyle = '#fff';
     ctx.fillStyle = avatar.color;
     ctx.shadowColor = avatar.color;
     ctx.shadowBlur = 10;
-    for (const projectile of game.projectiles) {
+    for (const tracer of game.tracers) {
+      ctx.globalAlpha = Math.min(1, tracer.life / 0.11);
+      ctx.strokeStyle = '#d8fbff';
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(projectile.x, projectile.y, 3, 0, Math.PI * 2);
+      ctx.moveTo(tracer.x1, tracer.y1);
+      ctx.lineTo(tracer.x2, tracer.y2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    for (const projectile of game.projectiles) {
+      ctx.save();
+      ctx.translate(projectile.x, projectile.y);
+      ctx.rotate(Math.atan2(projectile.vy, projectile.vx));
+      ctx.fillStyle = '#fff3bd';
+      ctx.shadowColor = '#ffb84d';
+      ctx.shadowBlur = 16;
+      ctx.beginPath();
+      ctx.moveTo(12, 0);
+      ctx.lineTo(-8, -4);
+      ctx.lineTo(-5, 0);
+      ctx.lineTo(-8, 4);
+      ctx.closePath();
       ctx.fill();
+      ctx.restore();
     }
     for (const particle of game.particles) {
       ctx.globalAlpha = Math.min(1, particle.life);
       ctx.fillRect(particle.x, particle.y, particle.size, particle.size);
     }
+    for (const piece of game.textDebris) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, piece.life);
+      ctx.translate(piece.x, piece.y);
+      ctx.rotate(piece.rotation);
+      ctx.font = `600 ${piece.size}px system-ui, sans-serif`;
+      ctx.fillStyle = '#f4fbff';
+      ctx.fillText(piece.glyph, 0, 0);
+      ctx.restore();
+    }
+    for (const shard of game.glassShards) drawGlassShard(shard);
+
     ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
     ctx.font = '600 13px system-ui, sans-serif';
     ctx.textBaseline = 'top';
     ctx.fillText(`SCORE ${game.score}   COMBO ${game.combo}`, 16, 16);
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.fillStyle = '#d7e7f2';
+    ctx.fillText('LMB / SPACE  MACHINE GUN     RMB / M  MISSILE', 16, 34);
+    ctx.restore();
+
+    drawReticle();
+  }
+
+  function drawGlassShard(shard) {
+    const center = shard.points.reduce((sum, point) => ({ x: sum.x + point.x / 3, y: sum.y + point.y / 3 }), { x: 0, y: 0 });
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, shard.life);
+    ctx.translate(shard.x, shard.y);
+    ctx.translate(center.x, center.y);
+    ctx.rotate(shard.rotation);
+    ctx.translate(-center.x, -center.y);
+    ctx.beginPath();
+    ctx.moveTo(shard.points[0].x, shard.points[0].y);
+    ctx.lineTo(shard.points[1].x, shard.points[1].y);
+    ctx.lineTo(shard.points[2].x, shard.points[2].y);
+    ctx.closePath();
+    ctx.save();
+    ctx.clip();
+    if (shard.imageElement?.complete && shard.imageElement.naturalWidth > 0) {
+      try {
+        ctx.drawImage(shard.imageElement, shard.bounds.x, shard.bounds.y, shard.bounds.w, shard.bounds.h);
+      } catch {
+        ctx.fillStyle = 'rgba(145, 226, 255, 0.5)';
+        ctx.fill();
+      }
+    } else {
+      ctx.fillStyle = 'rgba(145, 226, 255, 0.5)';
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(213, 247, 255, 0.95)';
+    ctx.lineWidth = 1.2;
+    ctx.shadowColor = '#7ce7ff';
+    ctx.shadowBlur = 8;
+    ctx.stroke();
     ctx.restore();
   }
 
-  function fireProjectile() {
-    const velocity = LIVIACore.aim(avatar, state.pointer, 760);
-    game.projectiles.push({ x: avatar.x, y: avatar.y, ...velocity, life: 1.8 });
-    if (game.projectiles.length > 24) game.projectiles.shift();
+  function drawReticle() {
+    const target = LIVIACore.hitTest(game.targets, state.pointer);
+    const color = target ? '#ffd27a' : '#e8fbff';
+    ctx.save();
+    ctx.translate(state.pointer.x, state.pointer.y);
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(0, 0, 12, 0, Math.PI * 2);
+    ctx.moveTo(-19, 0);
+    ctx.lineTo(-7, 0);
+    ctx.moveTo(7, 0);
+    ctx.lineTo(19, 0);
+    ctx.moveTo(0, -19);
+    ctx.lineTo(0, -7);
+    ctx.moveTo(0, 7);
+    ctx.lineTo(0, 19);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function fireMachineGun(now = performance.now()) {
+    const target = LIVIACore.hitTest(game.targets, state.pointer);
+    if (target) destroyTarget(target, now);
+    game.tracers.push({ x1: avatar.x, y1: avatar.y, x2: state.pointer.x, y2: state.pointer.y, life: 0.11 });
+    if (game.tracers.length > 8) game.tracers.shift();
+    game.nextMachineShotAt = now + 90;
+  }
+
+  function fireMissile() {
+    const target = LIVIACore.hitTest(game.targets, state.pointer);
+    const targetPoint = target
+      ? { x: target.bounds.x + target.bounds.w / 2, y: target.bounds.y + target.bounds.h / 2 }
+      : { x: state.pointer.x, y: state.pointer.y };
+    const speed = 780;
+    const velocity = LIVIACore.aim(avatar, targetPoint, speed, { x: 0, y: -1 });
+    const origin = Math.hypot(targetPoint.x - avatar.x, targetPoint.y - avatar.y) < 36
+      ? { x: targetPoint.x - velocity.vx / speed * 54, y: targetPoint.y - velocity.vy / speed * 54 }
+      : { x: avatar.x, y: avatar.y };
+    game.projectiles.push({
+      x: origin.x,
+      y: origin.y,
+      vx: velocity.vx,
+      vy: velocity.vy,
+      target,
+      targetPoint,
+      life: 2.2
+    });
+    if (game.projectiles.length > 16) game.projectiles.shift();
   }
 
   function refreshTargets() {
@@ -302,9 +495,11 @@
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
       if (avatar.mode === 'play') {
         updateGame(delta, now);
+        drawAvatar();
         drawGame(now);
+      } else {
+        drawAvatar();
       }
-      drawAvatar();
     } else {
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
     }
@@ -324,19 +519,22 @@
       const style = window.getComputedStyle(node);
       if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
       const isImage = node.tagName === 'IMG';
-      const text = (isImage ? node.getAttribute('alt') || node.getAttribute('title') : node.innerText)?.trim();
-      if (!text || text.length < 2) continue;
+      const imageElement = isImage ? node : null;
+      const imageLabel = imageElement?.getAttribute('alt') || imageElement?.getAttribute('title');
+      const text = (isImage ? imageLabel || 'IMAGE TARGET' : node.innerText)?.trim();
+      if (!text || (!isImage && text.length < 2)) continue;
       const normalized = text.toLowerCase().replace(/\s+/g, ' ');
-      if (seen.has(normalized)) continue;
+      if (!isImage && seen.has(normalized)) continue;
       const rect = node.getBoundingClientRect();
       if (rect.width < 12 || rect.height < 10 || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) continue;
-      seen.add(normalized);
+      if (!isImage) seen.add(normalized);
       const x = Math.max(0, rect.left);
       const y = Math.max(0, rect.top);
       items.push({
         id: node.id || `el-${Math.random().toString(36).slice(2)}`,
         type: isImage ? 'IMAGE' : 'TEXT',
         text: text.slice(0, 120),
+        imageElement,
         bounds: { x, y, w: Math.min(rect.right, window.innerWidth) - x, h: Math.min(rect.bottom, window.innerHeight) - y }
       });
       if (items.length >= 60) break;
@@ -350,7 +548,41 @@
   }
 
   function onPointerDown(event) {
-    if (avatar.mode === 'play' && shouldOperate() && event.button === 0) fireProjectile();
+    if (avatar.mode !== 'play' || !shouldOperate()) return;
+    state.pointer.x = event.clientX;
+    state.pointer.y = event.clientY;
+    if (event.button === 0) {
+      game.firing = true;
+      fireMachineGun();
+    } else if (event.button === 2) {
+      fireMissile();
+    }
+  }
+
+  function onPointerUp(event) {
+    if (event.button === 0) game.firing = false;
+  }
+
+  function onContextMenu(event) {
+    if (avatar.mode === 'play' && shouldOperate()) event.preventDefault();
+  }
+
+  function onKeyDown(event) {
+    if (avatar.mode !== 'play' || !shouldOperate() || event.repeat) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+    if (event.code === 'Space') {
+      event.preventDefault();
+      game.firing = true;
+      fireMachineGun();
+    } else if (event.code === 'KeyM') {
+      event.preventDefault();
+      fireMissile();
+    }
+  }
+
+  function onKeyUp(event) {
+    if (event.code === 'Space') game.firing = false;
   }
 
   function handleMessage(request, sender, sendResponse) {
@@ -393,6 +625,10 @@
           game.targets = [];
           game.projectiles = [];
           game.particles = [];
+          game.textDebris = [];
+          game.glassShards = [];
+          game.tracers = [];
+          game.firing = false;
         }
       }
       if (action.action === 'destroy') destroyAllTargets();
@@ -417,6 +653,11 @@
   });
   document.addEventListener('pointermove', onPointerMove);
   document.addEventListener('pointerdown', onPointerDown);
+  document.addEventListener('pointerup', onPointerUp);
+  document.addEventListener('contextmenu', onContextMenu);
+  document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', () => { game.firing = false; });
   window.addEventListener('resize', resizeCanvas);
   window.addEventListener('scroll', () => {
     if (avatar.mode !== 'play') return;

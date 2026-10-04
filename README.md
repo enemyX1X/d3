@@ -44,7 +44,7 @@ npm run build:extension
 2. Enable Developer mode.
 3. Choose **Load unpacked** and select the generated `dist/livia-extension` folder. Do not select the repository root.
 4. Leave `chrome://extensions`, open an ordinary page such as `https://example.com`, open the LIVIA popup, and choose **Enable on this site**. Browser pages like `chrome://extensions` are protected and cannot host the companion.
-5. Choose **Play** to create local targets, click a target to shoot, and choose **Rebuild** to restore destroyed targets.
+5. Choose **Play** to create local targets. Aim with the reticle; hold left-click or Space for machine-gun fire, or right-click / press M to launch a missile. Choose **Rebuild** to restore destroyed targets.
 
 Browser-protected pages (such as browser settings and extension stores) do not allow injection. Site permission can be revoked in the popup or browser extension settings.
 
