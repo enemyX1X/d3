@@ -97,6 +97,7 @@ export default function DashboardPage() {
         <div className="demo-shell" style={{ height: 250, marginTop: 14 }}>
           <AvatarCanvas form={cfg.form} color={cfg.color} size={cfg.size} />
         </div>
+        <p className="note">Move your pointer inside this preview to guide the avatar. The preview stays on this page.</p>
 
         <label>Name</label>
         <input value={cfg.name} onChange={(e) => update({ name: e.target.value })} />
@@ -131,7 +132,7 @@ export default function DashboardPage() {
       <section>
         <h2>Permissions & privacy</h2>
         <p className="card" style={{ color: 'var(--muted)' }}>
-          The extension asks for the minimum required access and only inspects visible page content; private forms, passwords and payment fields are never processed.
+          To keep LIVIA visible across supported sites and tabs, load the <code>apps/extension</code> folder as an unpacked Chrome or Edge extension, then enable each site in its popup. This web dashboard and the extension currently store settings separately.
         </p>
       </section>
     </main>

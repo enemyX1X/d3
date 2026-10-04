@@ -26,7 +26,7 @@ export default function AvatarCanvas({
     const ctx = context;
     const canvasEl = canvas;
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const state = { x: 180, y: 150, vx: 0, vy: 0, heading: 0 };
+    const state = { x: 180, y: 150, targetX: 180, targetY: 150, heading: 0 };
     let width = 0;
     let height = 0;
     let start = performance.now();
@@ -44,23 +44,19 @@ export default function AvatarCanvas({
 
     function pointerMove(event: PointerEvent) {
       const rect = canvasEl.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      state.vx += (x - state.x) * 0.04;
-      state.vy += (y - state.y) * 0.04;
-      state.heading = Math.atan2(y - state.y, x - state.x);
+      state.targetX = event.clientX - rect.left;
+      state.targetY = event.clientY - rect.top;
+      state.heading = Math.atan2(state.targetY - state.y, state.targetX - state.x);
     }
 
     function draw(now: number) {
       const dt = Math.min((now - start) / 1000, 0.05);
       start = now;
       const target = size * 34;
-      const damping = prefersReducedMotion ? 0.85 : 0.82;
+      const follow = prefersReducedMotion ? 1 : 1 - Math.exp(-8 * dt);
 
-      state.vx *= damping;
-      state.vy *= damping;
-      state.x += state.vx * 8 * dt;
-      state.y += state.vy * 8 * dt;
+      state.x += (state.targetX - state.x) * follow;
+      state.y += (state.targetY - state.y) * follow;
 
       state.x = Math.min(Math.max(40, state.x), width - 40);
       state.y = Math.min(Math.max(40, state.y), height - 40);
