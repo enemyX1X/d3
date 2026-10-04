@@ -94,7 +94,8 @@ document.querySelectorAll('[data-action]').forEach((button) => {
       'companion mode';
 
     const response = await sendCommand(text);
-    if (response && response.ok) setMessage('');
+    if (response?.ok) setMessage(action === 'play' ? `Sweeping ${response.targets} visible text/image targets.` : '');
+    else if (response?.error) setMessage(response.error);
   });
 });
 
@@ -151,5 +152,8 @@ document.getElementById('command').addEventListener('keydown', async (event) => 
   if (!text) return;
   event.target.value = '';
   const response = await sendCommand(text);
-  if (response) setMessage(response.ok ? 'Done.' : response.error || 'Command failed.');
+  if (response) {
+    const startedSweep = response.ok && response.action?.action === 'game' && response.action.on;
+    setMessage(startedSweep ? `Sweeping ${response.targets} visible text/image targets.` : response.ok ? 'Done.' : response.error || 'Command failed.');
+  }
 });

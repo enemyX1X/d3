@@ -37,7 +37,12 @@
     nextMachineShotAt: 0,
     clearPendingAt: 0,
     clearUntil: 0,
-    audioContext: null
+    audioContext: null,
+    startedAt: 0,
+    sweepStartedAt: 0,
+    sweepDuration: 0,
+    sweepIndex: 0,
+    clearSeconds: 0
   };
 
   const overlay = document.createElement('div');
@@ -198,74 +203,61 @@
     const bounds = target.bounds;
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = target.coverColor || '#fff';
-    ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
-    ctx.restore();
-
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.translate(bounds.x + bounds.w / 2, bounds.y + bounds.h / 2);
-    ctx.scale(scale, scale);
-    ctx.translate(-(bounds.x + bounds.w / 2), -(bounds.y + bounds.h / 2));
-    ctx.strokeStyle = avatar.color;
-    ctx.lineWidth = 1.5;
-    ctx.shadowColor = avatar.color;
-    ctx.shadowBlur = 12;
+    if (scale !== 1) {
+      ctx.translate(bounds.x + bounds.w / 2, bounds.y + bounds.h / 2);
+      ctx.scale(scale, scale);
+      ctx.translate(-(bounds.x + bounds.w / 2), -(bounds.y + bounds.h / 2));
+    }
     if (target.type === 'IMAGE' && target.imageElement?.complete && target.imageElement.naturalWidth > 0) {
       try {
         ctx.drawImage(target.imageElement, bounds.x, bounds.y, bounds.w, bounds.h);
       } catch {
-        ctx.fillStyle = 'rgba(8, 18, 30, 0.58)';
+        ctx.fillStyle = target.coverColor || '#fff';
         ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
       }
-      ctx.fillStyle = 'rgba(8, 18, 30, 0.18)';
-      ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
-    } else {
-      ctx.fillStyle = 'rgba(8, 18, 30, 0.58)';
+    } else if (target.type === 'IMAGE') {
+      ctx.fillStyle = target.coverColor || '#fff';
       ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
     }
-    ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
-    ctx.shadowBlur = 0;
     if (target.type !== 'IMAGE') {
       ctx.fillStyle = target.textColor || '#17212b';
       ctx.font = target.font || '12px system-ui, sans-serif';
       ctx.textBaseline = 'top';
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(bounds.x + 4, bounds.y + 4, Math.max(0, bounds.w - 8), Math.max(0, bounds.h - 8));
-      ctx.clip();
       const words = target.text.split(/\s+/);
-      const maxWidth = Math.max(0, bounds.w - 12);
+      const maxWidth = Math.max(0, bounds.w);
       const lineHeight = target.lineHeight || 15;
       let line = '';
-      let lineY = bounds.y + 6;
+      let lineY = bounds.y;
       for (const word of words) {
         const next = line ? `${line} ${word}` : word;
         if (line && ctx.measureText(next).width > maxWidth) {
-          ctx.fillText(line, bounds.x + 6, lineY, maxWidth);
+          ctx.fillText(line, bounds.x, lineY, maxWidth);
           lineY += lineHeight;
           line = word;
-          if (lineY + lineHeight > bounds.y + bounds.h - 2) break;
+          if (lineY + lineHeight > bounds.y + bounds.h) break;
         } else {
           line = next;
         }
       }
-      if (line && lineY + lineHeight <= bounds.y + bounds.h + lineHeight) {
-        ctx.fillText(line, bounds.x + 6, lineY, maxWidth);
+      if (line && lineY < bounds.y + bounds.h + lineHeight) {
+        ctx.fillText(line, bounds.x, lineY, maxWidth);
       }
-      ctx.restore();
     }
     ctx.restore();
   }
 
-  function destroyTarget(target, now) {
+  function destroyTarget(target, now, automatic = false) {
     if (!target || target.destroyed) return;
     target.destroyed = true;
     target.destroyedAt = now;
     target.rebuildStartedAt = 0;
-    game.combo = now - game.lastHitAt < 1400 ? game.combo + 1 : 1;
-    game.lastHitAt = now;
-    game.score += LIVIACore.points(game.combo);
+    if (automatic) {
+      game.score += 10;
+    } else {
+      game.combo = now - game.lastHitAt < 1400 ? game.combo + 1 : 1;
+      game.lastHitAt = now;
+      game.score += LIVIACore.points(game.combo);
+    }
     if (target.type === 'IMAGE') {
       game.glassShards.push(...LIVIACore.createGlassShards(target.bounds, 32).map((shard) => ({
         ...shard,
@@ -288,12 +280,24 @@
     const clearPlan = LIVIACore.planSceneClear(game.targets, now);
     if (clearPlan) {
       game.firing = false;
+      game.sweepStartedAt = 0;
+      game.clearSeconds = game.startedAt ? Math.max(0, (now - game.startedAt) / 1000) : 0;
+      game.score += Math.max(0, Math.round((10 - game.clearSeconds) * 25));
       game.clearPendingAt = clearPlan.blankAt;
       game.clearUntil = clearPlan.respawnAt;
     }
   }
 
   function updateGame(delta, now) {
+    if (game.sweepStartedAt && game.targets.length) {
+      const progress = Math.min(1, (now - game.sweepStartedAt) / game.sweepDuration);
+      const limit = LIVIACore.sceneSweepLimit(game.targets.length, progress);
+      while (game.sweepIndex < limit) {
+        destroyTarget(game.targets[game.sweepIndex], now, true);
+        game.sweepIndex += 1;
+      }
+      if (progress >= 1) game.sweepStartedAt = 0;
+    }
     if (game.firing && now >= game.nextMachineShotAt) fireMachineGun(now);
 
     for (let index = game.projectiles.length - 1; index >= 0; index -= 1) {
@@ -457,10 +461,49 @@
     ctx.fillText(`SCORE ${game.score}   COMBO ${game.combo}`, 16, 16);
     ctx.font = '11px system-ui, sans-serif';
     ctx.fillStyle = '#d7e7f2';
-    ctx.fillText('LMB / SPACE  MACHINE GUN     RMB / M  MISSILE', 16, 34);
+    if (game.sweepStartedAt) {
+      const progress = Math.min(1, (now - game.sweepStartedAt) / game.sweepDuration);
+      ctx.fillText(`AUTO SWEEP  ${Math.round(progress * 100)}%`, 16, 34);
+    } else {
+      ctx.fillText('LMB / SPACE  MACHINE GUN     RMB / M  MISSILE', 16, 34);
+    }
     ctx.restore();
 
     drawReticle();
+  }
+
+  function drawClearScorecard(now) {
+    ctx.save();
+    const width = Math.min(440, window.innerWidth - 40);
+    const height = 196;
+    const x = (window.innerWidth - width) / 2;
+    const y = (window.innerHeight - height) / 2;
+    const secondsRemaining = Math.max(0, Math.ceil((game.clearUntil - now) / 1000));
+
+    ctx.fillStyle = '#05070d';
+    ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+    ctx.fillStyle = '#0a131e';
+    ctx.strokeStyle = '#7cf3ff';
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = '#7cf3ff';
+    ctx.shadowBlur = 24;
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeRect(x, y, width, height);
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#7cf3ff';
+    ctx.font = '700 19px system-ui, sans-serif';
+    ctx.fillText('SCREEN CLEARED', window.innerWidth / 2, y + 42);
+    ctx.fillStyle = '#f3f7fb';
+    ctx.font = '600 15px system-ui, sans-serif';
+    ctx.fillText(`CLEAR TIME  ${game.clearSeconds.toFixed(2)} s`, window.innerWidth / 2, y + 90);
+    ctx.fillText(`SCORE  ${game.score}`, window.innerWidth / 2, y + 120);
+    ctx.fillStyle = '#93a8b7';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillText(`NEXT SCENE IN ${secondsRemaining}s`, window.innerWidth / 2, y + 160);
+    ctx.textAlign = 'start';
+    ctx.restore();
   }
 
   function drawSmoke(puff) {
@@ -614,13 +657,8 @@
   }
 
   function refreshTargets() {
-    const scene = scanVisibleText();
-    game.targets = scene
-      .filter((element) => {
-        const nearestX = Math.max(element.bounds.x, Math.min(avatar.x, element.bounds.x + element.bounds.w));
-        const nearestY = Math.max(element.bounds.y, Math.min(avatar.y, element.bounds.y + element.bounds.h));
-        return Math.hypot(avatar.x - nearestX, avatar.y - nearestY) >= 96;
-      })
+    game.targets = scanVisibleText()
+      .sort((first, second) => first.bounds.y - second.bounds.y || first.bounds.x - second.bounds.x)
       .map((element) => ({ ...element, destroyed: false, destroyedAt: 0, rebuildStartedAt: 0 }));
   }
 
@@ -661,11 +699,11 @@
         }
         if (game.clearUntil && now >= game.clearUntil) {
           game.clearUntil = 0;
+          game.startedAt = 0;
           refreshTargets();
         }
         if (game.clearUntil && !game.clearPendingAt && now < game.clearUntil) {
-          ctx.fillStyle = '#05070d';
-          ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+          drawClearScorecard(now);
           frameId = requestAnimationFrame(animate);
           return;
         }
@@ -683,6 +721,9 @@
 
   function scanVisibleText() {
     if (!state.analysisEnabled) return [];
+    const items = [];
+    const maxTargets = 2400;
+    const ignored = 'form, input, textarea, select, button, [contenteditable="true"], [role="textbox"], [aria-hidden="true"], [data-livia-ignore], script, style, noscript, svg, #livia-companion';
 
     function getCoverColor(element) {
       let current = element;
@@ -696,39 +737,83 @@
       return '#fff';
     }
 
-    const nodes = Array.from(document.body.querySelectorAll('h1, h2, h3, h4, p, li, a, [role="heading"], img'));
-    const items = [];
-    const seen = new Set();
-    for (const node of nodes) {
-      if (!(node instanceof HTMLElement)) continue;
-      if (isSensitive(node)) continue;
-      if (node.closest('form, input, textarea, select, button, [contenteditable="true"], [role="textbox"], [aria-hidden="true"], [data-livia-ignore], #livia-companion')) continue;
-      const style = window.getComputedStyle(node);
-      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
-      const isImage = node.tagName === 'IMG';
-      const imageElement = isImage ? node : null;
-      const imageLabel = imageElement?.getAttribute('alt') || imageElement?.getAttribute('title');
-      const text = (isImage ? imageLabel || 'IMAGE TARGET' : node.innerText)?.trim();
-      if (!text || (!isImage && text.length < 2)) continue;
-      const normalized = text.toLowerCase().replace(/\s+/g, ' ');
-      if (!isImage && seen.has(normalized)) continue;
-      const rect = node.getBoundingClientRect();
-      if (rect.width < 12 || rect.height < 10 || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) continue;
-      if (!isImage) seen.add(normalized);
+    function visibleStyle(element) {
+      if (!(element instanceof HTMLElement) || isSensitive(element) || element.closest(ignored)) return null;
+      const style = window.getComputedStyle(element);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05) return null;
+      return style;
+    }
+
+    const images = document.body.querySelectorAll('img');
+    for (const image of images) {
+      if (items.length >= 180) break;
+      if (!image.complete || !image.naturalWidth || !visibleStyle(image)) continue;
+      const rect = image.getBoundingClientRect();
+      if (rect.width < 24 || rect.height < 18 || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) continue;
+      const style = window.getComputedStyle(image);
       const x = Math.max(0, rect.left);
       const y = Math.max(0, rect.top);
       items.push({
-        id: node.id || `el-${Math.random().toString(36).slice(2)}`,
-        type: isImage ? 'IMAGE' : 'TEXT',
-        text: text.slice(0, 360),
-        coverColor: getCoverColor(node),
-        textColor: style.color,
-        font: style.font,
-        lineHeight: Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.2,
-        imageElement,
+        id: image.id || `image-${items.length}`,
+        type: 'IMAGE',
+        text: image.getAttribute('alt') || image.getAttribute('title') || 'IMAGE TARGET',
+        coverColor: getCoverColor(image),
+        imageElement: image,
         bounds: { x, y, w: Math.min(rect.right, window.innerWidth) - x, h: Math.min(rect.bottom, window.innerHeight) - y }
       });
-      if (items.length >= 60) break;
+    }
+
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let textNode;
+    let scannedWords = 0;
+    while (items.length < maxTargets && (textNode = walker.nextNode())) {
+      const element = textNode.parentElement;
+      const style = element && visibleStyle(element);
+      const value = textNode.nodeValue || '';
+      if (!style || !/\S/.test(value)) continue;
+
+      const lines = new Map();
+      const wordPattern = /\S+/g;
+      let word;
+      while ((word = wordPattern.exec(value)) && items.length + lines.size < maxTargets && scannedWords < 18_000) {
+        scannedWords += 1;
+        const range = document.createRange();
+        range.setStart(textNode, word.index);
+        range.setEnd(textNode, word.index + word[0].length);
+        for (const rect of range.getClientRects()) {
+          if (rect.width < 1 || rect.height < 6 || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) continue;
+          const key = Math.round(rect.top);
+          let line = lines.get(key);
+          if (!line) {
+            line = { text: [], left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+            lines.set(key, line);
+          }
+          line.text.push(word[0]);
+          line.left = Math.min(line.left, rect.left);
+          line.right = Math.max(line.right, rect.right);
+          line.top = Math.min(line.top, rect.top);
+          line.bottom = Math.max(line.bottom, rect.bottom);
+        }
+      }
+
+      for (const line of lines.values()) {
+        if (items.length >= maxTargets) break;
+        const x = Math.max(0, line.left - 1);
+        const y = Math.max(0, line.top - 1);
+        const right = Math.min(window.innerWidth, line.right + 1);
+        const bottom = Math.min(window.innerHeight, line.bottom + 1);
+        items.push({
+          id: `text-${items.length}`,
+          type: 'TEXT',
+          text: line.text.join(' '),
+          coverColor: getCoverColor(element),
+          textColor: style.color,
+          font: style.font,
+          lineHeight: Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.2,
+          wordTarget: true,
+          bounds: { x, y, w: right - x, h: bottom - y }
+        });
+      }
     }
     return items;
   }
@@ -816,7 +901,27 @@
         if (action.on) {
           avatar.x = Math.min(64, window.innerWidth * 0.2);
           avatar.y = Math.max(64, window.innerHeight - 72);
+          game.score = 0;
+          game.combo = 0;
+          game.clearSeconds = 0;
+          game.startedAt = performance.now();
+          game.sweepStartedAt = 0;
+          game.sweepIndex = 0;
+          game.projectiles = [];
+          game.particles = [];
+          game.smoke = [];
+          game.textDebris = [];
+          game.glassShards = [];
           refreshTargets();
+          if (!game.targets.length) {
+            avatar.mode = 'companion';
+            game.startedAt = 0;
+            sendResponse({ ok: false, error: 'No visible text or images were found in this viewport.' });
+            return true;
+          }
+          game.startedAt = performance.now();
+          game.sweepDuration = LIVIACore.sceneSweepDuration(game.targets.length);
+          game.sweepStartedAt = game.startedAt;
         } else {
           game.targets = [];
           game.projectiles = [];
@@ -825,6 +930,8 @@
           game.glassShards = [];
           game.tracers = [];
           game.firing = false;
+          game.sweepStartedAt = 0;
+          game.startedAt = 0;
         }
       }
       if (action.action === 'destroy') destroyAllTargets();
@@ -834,7 +941,7 @@
         avatar.y = state.pointer.y;
       }
       persistAvatar();
-      sendResponse({ ok: true, action, score: game.score });
+      sendResponse({ ok: true, action, score: game.score, targets: game.targets.length, clearSeconds: game.clearSeconds });
       return true;
     }
 
