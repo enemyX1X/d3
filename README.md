@@ -43,7 +43,7 @@ npm run build:extension
 1. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
 2. Enable Developer mode.
 3. Choose **Load unpacked** and select the generated `dist/livia-extension` folder. Do not select the repository root.
-4. Open an ordinary HTTP/HTTPS site and choose **Enable on this site** in the LIVIA popup.
+4. Leave `chrome://extensions`, open an ordinary page such as `https://example.com`, open the LIVIA popup, and choose **Enable on this site**. Browser pages like `chrome://extensions` are protected and cannot host the companion.
 5. Choose **Play** to create local targets, click a target to shoot, and choose **Rebuild** to restore destroyed targets.
 
 Browser-protected pages (such as browser settings and extension stores) do not allow injection. Site permission can be revoked in the popup or browser extension settings.
