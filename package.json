@@ -1,0 +1,17 @@
+{
+  "name": "livia-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace apps/web run dev",
+    "build:web": "npm --workspace apps/web run build",
+    "typecheck:web": "npm --workspace apps/web run typecheck",
+    "test:web": "npm --workspace apps/web run test",
+    "lint:web": "npm --workspace apps/web run lint",
+    "validate": "npm run typecheck:web && npm run test:web && npm run build:web"
+  }
+}
