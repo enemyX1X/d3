@@ -26,6 +26,7 @@
     targets: [],
     projectiles: [],
     particles: [],
+    smoke: [],
     textDebris: [],
     glassShards: [],
     tracers: [],
@@ -33,7 +34,10 @@
     combo: 0,
     lastHitAt: 0,
     firing: false,
-    nextMachineShotAt: 0
+    nextMachineShotAt: 0,
+    clearPendingAt: 0,
+    clearUntil: 0,
+    audioContext: null
   };
 
   const overlay = document.createElement('div');
@@ -100,10 +104,15 @@
   function drawAvatar() {
     if (!ctx) return;
     const size = 22 * avatar.scale;
-    avatar.vx *= 0.82;
-    avatar.vy *= 0.82;
-    avatar.x += (state.pointer.x - avatar.x) * 0.08 + avatar.vx;
-    avatar.y += (state.pointer.y - avatar.y) * 0.08 + avatar.vy;
+    if (avatar.mode === 'play') {
+      avatar.x = Math.min(64, window.innerWidth * 0.2);
+      avatar.y = Math.max(64, window.innerHeight - 72);
+    } else {
+      avatar.vx *= 0.82;
+      avatar.vy *= 0.82;
+      avatar.x += (state.pointer.x - avatar.x) * 0.08 + avatar.vx;
+      avatar.y += (state.pointer.y - avatar.y) * 0.08 + avatar.vy;
+    }
 
     ctx.save();
     ctx.translate(avatar.x, avatar.y);
@@ -244,6 +253,15 @@
     }
     game.particles.push(...LIVIACore.createFragments(target.bounds, 10));
     if (game.particles.length > 160) game.particles.splice(0, game.particles.length - 160);
+    game.smoke.push(...LIVIACore.createSmoke(target.bounds, target.type === 'IMAGE' ? 14 : 9));
+    if (game.smoke.length > 96) game.smoke.splice(0, game.smoke.length - 96);
+
+    const clearPlan = LIVIACore.planSceneClear(game.targets, now);
+    if (clearPlan) {
+      game.firing = false;
+      game.clearPendingAt = clearPlan.blankAt;
+      game.clearUntil = clearPlan.respawnAt;
+    }
   }
 
   function updateGame(delta, now) {
@@ -251,6 +269,7 @@
 
     for (let index = game.projectiles.length - 1; index >= 0; index -= 1) {
       const projectile = game.projectiles[index];
+      const previous = { x: projectile.x, y: projectile.y };
       if (projectile.target && !projectile.target.destroyed) {
         projectile.targetPoint.x = projectile.target.bounds.x + projectile.target.bounds.w / 2;
         projectile.targetPoint.y = projectile.target.bounds.y + projectile.target.bounds.h / 2;
@@ -259,9 +278,25 @@
         projectile.vx += (desired.vx - projectile.vx) * turn;
         projectile.vy += (desired.vy - projectile.vy) * turn;
       }
-      projectile.x += projectile.vx * delta;
-      projectile.y += projectile.vy * delta;
+      const speed = Math.hypot(projectile.vx, projectile.vy) || 1;
+      const step = projectile.kind === 'bullet'
+        ? Math.min(speed * delta, Math.max(0, projectile.range - projectile.distanceTravelled))
+        : speed * delta;
+      projectile.x += projectile.vx / speed * step;
+      projectile.y += projectile.vy / speed * step;
       projectile.life -= delta;
+      if (projectile.kind === 'bullet') {
+        projectile.distanceTravelled += step;
+        const target = LIVIACore.hitTestSegment(game.targets, previous, projectile, 5);
+        if (target) {
+          destroyTarget(target, now);
+          game.projectiles.splice(index, 1);
+        } else if (projectile.distanceTravelled >= projectile.range || projectile.life <= 0) {
+          game.projectiles.splice(index, 1);
+        }
+        continue;
+      }
+
       const distance = Math.hypot(projectile.targetPoint.x - projectile.x, projectile.targetPoint.y - projectile.y);
       if (projectile.target && !projectile.target.destroyed && distance < 18) {
         destroyTarget(projectile.target, now);
@@ -309,10 +344,20 @@
       game.tracers[index].life -= delta;
       if (game.tracers[index].life <= 0) game.tracers.splice(index, 1);
     }
+
+    for (let index = game.smoke.length - 1; index >= 0; index -= 1) {
+      const puff = game.smoke[index];
+      puff.x += puff.vx * delta;
+      puff.y += puff.vy * delta;
+      puff.size += 16 * delta;
+      puff.life -= delta;
+      if (puff.life <= 0) game.smoke.splice(index, 1);
+    }
   }
 
   function drawGame(now) {
     for (const target of game.targets) drawTarget(target, now);
+    for (const puff of game.smoke) drawSmoke(puff);
 
     ctx.save();
     ctx.fillStyle = avatar.color;
@@ -332,16 +377,31 @@
       ctx.save();
       ctx.translate(projectile.x, projectile.y);
       ctx.rotate(Math.atan2(projectile.vy, projectile.vx));
-      ctx.fillStyle = '#fff3bd';
-      ctx.shadowColor = '#ffb84d';
-      ctx.shadowBlur = 16;
-      ctx.beginPath();
-      ctx.moveTo(12, 0);
-      ctx.lineTo(-8, -4);
-      ctx.lineTo(-5, 0);
-      ctx.lineTo(-8, 4);
-      ctx.closePath();
-      ctx.fill();
+      if (projectile.kind === 'bullet') {
+        ctx.strokeStyle = 'rgba(255, 199, 74, 0.72)';
+        ctx.lineWidth = 2;
+        ctx.shadowColor = '#ffbf3f';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.moveTo(-21, 0);
+        ctx.lineTo(-4, 0);
+        ctx.stroke();
+        ctx.fillStyle = '#fff2b0';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 5, 2.1, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = '#fff3bd';
+        ctx.shadowColor = '#ffb84d';
+        ctx.shadowBlur = 16;
+        ctx.beginPath();
+        ctx.moveTo(12, 0);
+        ctx.lineTo(-8, -4);
+        ctx.lineTo(-5, 0);
+        ctx.lineTo(-8, 4);
+        ctx.closePath();
+        ctx.fill();
+      }
       ctx.restore();
     }
     for (const particle of game.particles) {
@@ -371,6 +431,19 @@
     ctx.restore();
 
     drawReticle();
+  }
+
+  function drawSmoke(puff) {
+    const life = Math.max(0, puff.life / puff.maxLife);
+    const radius = puff.size * (1.4 - life * 0.35);
+    const gradient = ctx.createRadialGradient(puff.x, puff.y, 0, puff.x, puff.y, radius);
+    gradient.addColorStop(0, `rgba(186, 202, 211, ${0.18 * life})`);
+    gradient.addColorStop(0.68, `rgba(111, 137, 151, ${0.12 * life})`);
+    gradient.addColorStop(1, 'rgba(77, 96, 108, 0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(puff.x, puff.y, radius, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   function drawGlassShard(shard) {
@@ -435,12 +508,54 @@
     ctx.restore();
   }
 
+  function playWeaponSound(kind) {
+    try {
+      const AudioContextType = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextType) return;
+      if (!game.audioContext) game.audioContext = new AudioContextType();
+      if (game.audioContext.state === 'suspended') void game.audioContext.resume();
+
+      const audio = game.audioContext;
+      const startAt = audio.currentTime;
+      const duration = kind === 'missile' ? 0.32 : 0.055;
+      const oscillator = audio.createOscillator();
+      const gain = audio.createGain();
+      oscillator.type = kind === 'missile' ? 'sawtooth' : 'square';
+      oscillator.frequency.setValueAtTime(kind === 'missile' ? 190 : 920, startAt);
+      oscillator.frequency.exponentialRampToValueAtTime(kind === 'missile' ? 58 : 280, startAt + duration);
+      gain.gain.setValueAtTime(kind === 'missile' ? 0.075 : 0.035, startAt);
+      gain.gain.exponentialRampToValueAtTime(0.001, startAt + duration);
+      oscillator.connect(gain);
+      gain.connect(audio.destination);
+      oscillator.start(startAt);
+      oscillator.stop(startAt + duration);
+    } catch {
+      // Audio is optional; gameplay remains available when browser audio is blocked.
+    }
+  }
+
   function fireMachineGun(now = performance.now()) {
-    const target = LIVIACore.hitTest(game.targets, state.pointer);
-    if (target) destroyTarget(target, now);
-    game.tracers.push({ x1: avatar.x, y1: avatar.y, x2: state.pointer.x, y2: state.pointer.y, life: 0.11 });
-    if (game.tracers.length > 8) game.tracers.shift();
-    game.nextMachineShotAt = now + 90;
+    const speed = 1120;
+    const targetPoint = { x: state.pointer.x, y: state.pointer.y };
+    const velocity = LIVIACore.aim(avatar, targetPoint, speed, { x: 1, y: 0 });
+    const angle = Math.atan2(velocity.vy, velocity.vx) + (Math.random() - 0.5) * 0.025;
+    const distance = Math.max(18, Math.hypot(targetPoint.x - avatar.x, targetPoint.y - avatar.y));
+    game.projectiles.push({
+      kind: 'bullet',
+      x: avatar.x,
+      y: avatar.y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1.35,
+      range: distance,
+      distanceTravelled: 0
+    });
+    if (game.projectiles.filter((projectile) => projectile.kind === 'bullet').length > 84) {
+      const oldest = game.projectiles.findIndex((projectile) => projectile.kind === 'bullet');
+      if (oldest >= 0) game.projectiles.splice(oldest, 1);
+    }
+    game.nextMachineShotAt = now + 72;
+    playWeaponSound('gun');
   }
 
   function fireMissile() {
@@ -454,6 +569,7 @@
       ? { x: targetPoint.x - velocity.vx / speed * 54, y: targetPoint.y - velocity.vy / speed * 54 }
       : { x: avatar.x, y: avatar.y };
     game.projectiles.push({
+      kind: 'missile',
       x: origin.x,
       y: origin.y,
       vx: velocity.vx,
@@ -462,16 +578,26 @@
       targetPoint,
       life: 2.2
     });
-    if (game.projectiles.length > 16) game.projectiles.shift();
+    const missiles = game.projectiles.filter((projectile) => projectile.kind === 'missile');
+    if (missiles.length > 12) game.projectiles.splice(game.projectiles.indexOf(missiles[0]), 1);
+    playWeaponSound('missile');
   }
 
   function refreshTargets() {
     const scene = scanVisibleText();
-    game.targets = scene.map((element) => ({ ...element, destroyed: false, destroyedAt: 0, rebuildStartedAt: 0 }));
+    game.targets = scene
+      .filter((element) => {
+        const nearestX = Math.max(element.bounds.x, Math.min(avatar.x, element.bounds.x + element.bounds.w));
+        const nearestY = Math.max(element.bounds.y, Math.min(avatar.y, element.bounds.y + element.bounds.h));
+        return Math.hypot(avatar.x - nearestX, avatar.y - nearestY) >= 96;
+      })
+      .map((element) => ({ ...element, destroyed: false, destroyedAt: 0, rebuildStartedAt: 0 }));
   }
 
   function rebuildTargets() {
     const now = performance.now();
+    game.clearPendingAt = 0;
+    game.clearUntil = 0;
     for (const target of game.targets) {
       if (target.destroyed) target.rebuildStartedAt = now;
     }
@@ -494,6 +620,23 @@
     if (shouldOperate()) {
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
       if (avatar.mode === 'play') {
+        if (game.clearPendingAt && now >= game.clearPendingAt) {
+          game.clearPendingAt = 0;
+          game.projectiles = [];
+          game.particles = [];
+          game.smoke = [];
+          game.textDebris = [];
+          game.glassShards = [];
+          game.tracers = [];
+        }
+        if (game.clearUntil && now >= game.clearUntil) {
+          game.clearUntil = 0;
+          refreshTargets();
+        }
+        if (game.clearUntil && !game.clearPendingAt && now < game.clearUntil) {
+          frameId = requestAnimationFrame(animate);
+          return;
+        }
         updateGame(delta, now);
         drawAvatar();
         drawGame(now);
@@ -620,8 +763,13 @@
           return true;
         }
         avatar.mode = action.on ? 'play' : 'companion';
-        if (action.on) refreshTargets();
-        else {
+        game.clearPendingAt = 0;
+        game.clearUntil = 0;
+        if (action.on) {
+          avatar.x = Math.min(64, window.innerWidth * 0.2);
+          avatar.y = Math.max(64, window.innerHeight - 72);
+          refreshTargets();
+        } else {
           game.targets = [];
           game.projectiles = [];
           game.particles = [];

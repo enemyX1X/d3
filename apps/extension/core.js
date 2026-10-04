@@ -95,6 +95,12 @@
     return 10 * Math.max(0, Math.floor(combo));
   }
 
+  function planSceneClear(targets, now, debrisDuration = 1700, blankDuration = 60_000) {
+    if (!targets.length || targets.some((target) => !target.destroyed)) return null;
+    const blankAt = now + Math.max(0, debrisDuration);
+    return { blankAt, respawnAt: blankAt + Math.max(0, blankDuration) };
+  }
+
   function hitTest(targets, point) {
     for (let index = targets.length - 1; index >= 0; index -= 1) {
       const target = targets[index];
@@ -103,6 +109,40 @@
       if (point.x >= bounds.x && point.x <= bounds.x + bounds.w && point.y >= bounds.y && point.y <= bounds.y + bounds.h) {
         return target;
       }
+    }
+    return null;
+  }
+
+  function hitTestSegment(targets, from, to, radius = 0) {
+    const deltaX = to.x - from.x;
+    const deltaY = to.y - from.y;
+
+    for (let index = targets.length - 1; index >= 0; index -= 1) {
+      const target = targets[index];
+      if (target.destroyed || !target.bounds) continue;
+      const bounds = target.bounds;
+      const left = bounds.x - radius;
+      const right = bounds.x + bounds.w + radius;
+      const top = bounds.y - radius;
+      const bottom = bounds.y + bounds.h + radius;
+      const p = [-deltaX, deltaX, -deltaY, deltaY];
+      const q = [from.x - left, right - from.x, from.y - top, bottom - from.y];
+      let start = 0;
+      let end = 1;
+      let intersects = true;
+
+      for (let edge = 0; edge < 4; edge += 1) {
+        if (Math.abs(p[edge]) < 1e-9) {
+          if (q[edge] < 0) intersects = false;
+          continue;
+        }
+        const ratio = q[edge] / p[edge];
+        if (p[edge] < 0) start = Math.max(start, ratio);
+        else end = Math.min(end, ratio);
+        if (start > end) intersects = false;
+      }
+
+      if (intersects) return target;
     }
     return null;
   }
@@ -180,7 +220,23 @@
     });
   }
 
-  const api = { FORMS, parse, valid, isSensitive, aim, rebuildProgress, points, hitTest, createFragments, createTextDebris, createGlassShards };
+  function createSmoke(bounds, count = 8, random = Math.random) {
+    const puffCount = Math.min(24, Math.max(1, Math.floor(count)));
+    const centerX = bounds.x + bounds.w / 2;
+    const centerY = bounds.y + bounds.h / 2;
+
+    return Array.from({ length: puffCount }, () => ({
+      x: centerX + (random() - 0.5) * bounds.w * 0.6,
+      y: centerY + (random() - 0.5) * bounds.h * 0.6,
+      vx: (random() - 0.5) * 55,
+      vy: -25 - random() * 65,
+      life: 0.75 + random() * 0.7,
+      maxLife: 1.45,
+      size: 8 + random() * 22
+    }));
+  }
+
+  const api = { FORMS, parse, valid, isSensitive, aim, rebuildProgress, points, planSceneClear, hitTest, hitTestSegment, createFragments, createTextDebris, createGlassShards, createSmoke };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

@@ -18,6 +18,22 @@ test('virtual hit testing selects the topmost live target', () => {
   assert.equal(core.hitTest([first], { x: 5, y: 5 }), null);
 });
 
+test('fast bullet segments hit crossed targets but not missed targets', () => {
+  const target = { id: 'target', bounds: { x: 40, y: 30, w: 20, h: 20 } };
+
+  assert.equal(core.hitTestSegment([target], { x: 0, y: 40 }, { x: 100, y: 40 }, 2), target);
+  assert.equal(core.hitTestSegment([target], { x: 0, y: 0 }, { x: 100, y: 0 }, 2), null);
+});
+
+test('scene clear waits for debris then blanks for one minute', () => {
+  const allDestroyed = [{ destroyed: true }, { destroyed: true }];
+  const partlyAlive = [{ destroyed: true }, { destroyed: false }];
+
+  assert.deepEqual(core.planSceneClear(allDestroyed, 500), { blankAt: 2200, respawnAt: 62200 });
+  assert.equal(core.planSceneClear(partlyAlive, 500), null);
+  assert.equal(core.planSceneClear([], 500), null);
+});
+
 test('fragment effects stay within the configured cap', () => {
   const fragments = core.createFragments({ x: 0, y: 0, w: 20, h: 10 }, 1000, () => 0.5);
 
@@ -45,4 +61,11 @@ test('image glass shards are bounded triangles with outward motion', () => {
   assert.equal(shards.length, 64);
   assert.ok(shards.every((shard) => shard.points.length === 3));
   assert.ok(shards.every((shard) => Math.hypot(shard.vx, shard.vy) > 0));
+});
+
+test('smoke puffs stay capped and have finite drifting motion', () => {
+  const smoke = core.createSmoke({ x: 0, y: 0, w: 40, h: 20 }, 100, () => 0.5);
+
+  assert.equal(smoke.length, 24);
+  assert.ok(smoke.every((puff) => Number.isFinite(puff.x + puff.y + puff.vx + puff.vy + puff.size)));
 });
