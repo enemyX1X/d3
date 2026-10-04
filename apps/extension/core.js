@@ -50,13 +50,20 @@
 
   function isSensitive(element) {
     if (!element || typeof element !== 'object') return true;
-    const tag = String(element.tag || '').toUpperCase();
+    const tag = String(element.tagName || element.tag || '').toUpperCase();
     const skip = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON']);
+    const name = element.getAttribute?.('name') || element.name || '';
+    const id = element.getAttribute?.('id') || element.id || '';
+    const autocomplete = element.getAttribute?.('autocomplete') || element.autocomplete || '';
+    const role = element.getAttribute?.('role') || element.role || '';
+    const identity = `${name} ${id} ${autocomplete}`.toLowerCase();
 
     if (skip.has(tag)) return true;
     if (String(element.type || '').toLowerCase() === 'password') return true;
-    if (/^(cc-|one-time-code|current-password|new-password)/.test(String(element.autocomplete || '').toLowerCase())) return true;
-    if (element.editable === true) return true;
+    if (/^(cc-|one-time-code|current-password|new-password|webauthn)/.test(String(autocomplete).toLowerCase())) return true;
+    if (/(password|passwd|token|secret|credit.?card|card.?number|cvv|cvc|otp|one.?time.?code)/.test(identity)) return true;
+    if (element.editable === true || element.isContentEditable === true || element.contentEditable === 'true') return true;
+    if (String(role).toLowerCase() === 'textbox') return true;
     return false;
   }
 
@@ -83,7 +90,38 @@
     return 10 * Math.max(0, Math.floor(combo));
   }
 
-  const api = { FORMS, parse, valid, isSensitive, aim, rebuildProgress, points };
+  function hitTest(targets, point) {
+    for (let index = targets.length - 1; index >= 0; index -= 1) {
+      const target = targets[index];
+      const bounds = target.bounds;
+      if (target.destroyed || !bounds) continue;
+      if (point.x >= bounds.x && point.x <= bounds.x + bounds.w && point.y >= bounds.y && point.y <= bounds.y + bounds.h) {
+        return target;
+      }
+    }
+    return null;
+  }
+
+  function createFragments(bounds, count, random = Math.random) {
+    const centerX = bounds.x + bounds.w / 2;
+    const centerY = bounds.y + bounds.h / 2;
+    const fragmentCount = Math.min(64, Math.max(1, Math.floor(count)));
+
+    return Array.from({ length: fragmentCount }, () => {
+      const angle = random() * Math.PI * 2;
+      const speed = 50 + random() * 190;
+      return {
+        x: centerX,
+        y: centerY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0.55 + random() * 0.75,
+        size: 1.5 + random() * 3.5
+      };
+    });
+  }
+
+  const api = { FORMS, parse, valid, isSensitive, aim, rebuildProgress, points, hitTest, createFragments };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

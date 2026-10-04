@@ -1,35 +1,56 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useState, useSyncExternalStore } from 'react';
 import AvatarCanvas from '@/components/AvatarCanvas';
 import { DEFAULT_CONFIG, FORMS, sanitizeConfig, type AvatarConfig, type Form } from '@/lib/livia';
 
 const STORAGE_KEY = 'livia-config';
+const listeners = new Set<() => void>();
+let storedConfig = DEFAULT_CONFIG;
+let storageRead = false;
+
+function readStoredConfig() {
+  if (storageRead || typeof window === 'undefined') return;
+  storageRead = true;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw) storedConfig = sanitizeConfig(JSON.parse(raw));
+  } catch {
+    storedConfig = DEFAULT_CONFIG;
+  }
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  readStoredConfig();
+  return () => listeners.delete(listener);
+}
+
+function getSnapshot() {
+  readStoredConfig();
+  return storedConfig;
+}
+
+function notifyConfigChanged() {
+  for (const listener of listeners) listener();
+}
 
 export default function DashboardPage() {
-  const [cfg, setCfg] = useState<AvatarConfig>(DEFAULT_CONFIG);
+  const cfg = useSyncExternalStore(subscribe, getSnapshot, () => DEFAULT_CONFIG);
   const [command, setCommand] = useState('become a spaceship');
   const [output, setOutput] = useState('');
 
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        setCfg(sanitizeConfig(JSON.parse(raw)));
-      }
-    } catch {
-      // Local storage unavailable: use defaults.
-    }
-  }, []);
-
   function update(next: Partial<AvatarConfig>) {
     const merged = sanitizeConfig({ ...cfg, ...next });
-    setCfg(merged);
+    storedConfig = merged;
+    storageRead = true;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
     } catch {
       // Ignore storage write failures.
     }
+    notifyConfigChanged();
   }
 
   async function runCommand() {
@@ -68,7 +89,7 @@ export default function DashboardPage() {
     <main>
       <nav>
         <b>LIVIA</b>
-        <span><a href="/">Home</a></span>
+        <span><Link href="/">Home</Link></span>
       </nav>
 
       <section>

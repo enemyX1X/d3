@@ -16,5 +16,8 @@ jobs:
           cache: npm
       - run: npm install
       - run: npm run typecheck:web
+      - run: npm run lint:web
       - run: npm run test:web
+      - run: npm run test:extension
+      - run: npm run check:extension
       - run: npm run build:web

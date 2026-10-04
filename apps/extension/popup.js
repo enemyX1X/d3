@@ -1,4 +1,4 @@
-const state = { paused: false, disabledSites: [], analysisEnabled: true, host: '' };
+const state = { paused: false, disabledSites: [], analysisEnabled: true, host: '', sitePattern: null, siteGranted: false, tabId: null };
 const messageEl = document.getElementById('message');
 const statusEl = document.querySelector('.status');
 
@@ -11,8 +11,33 @@ async function getTab() {
   return tab;
 }
 
+function patternFor(tab) {
+  try {
+    const url = new URL(tab.url);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return `${url.protocol}//${url.hostname}/*`;
+  } catch {
+    return null;
+  }
+}
+
+function saveSettings() {
+  return chrome.storage.local.set({
+    settings: {
+      paused: state.paused,
+      disabledSites: state.disabledSites,
+      analysisEnabled: state.analysisEnabled
+    }
+  });
+}
+
 async function sendCommand(text) {
+  if (!state.siteGranted || state.disabledSites.includes(state.host)) {
+    setMessage('Enable LIVIA for this site first.');
+    return null;
+  }
   const tab = await getTab();
+  if (!tab?.id) return null;
   try {
     const result = await chrome.tabs.sendMessage(tab.id, { type: 'cmd', text });
     return result;
@@ -23,19 +48,28 @@ async function sendCommand(text) {
 }
 
 function renderState() {
-  const isDisabled = state.disabledSites.includes(state.host);
-  statusEl.textContent = state.paused || isDisabled ? '○ PAUSED' : '● ACTIVE';
+  const isEnabled = state.siteGranted && !state.disabledSites.includes(state.host);
+  statusEl.textContent = state.paused ? '○ PAUSED' : isEnabled ? '● ACTIVE' : '○ SITE ACCESS OFF';
   document.getElementById('pause').textContent = state.paused ? 'Resume companion' : 'Pause companion';
-  document.getElementById('site').textContent = isDisabled ? 'Enable on this site' : 'Disable on this site';
+  document.getElementById('site').textContent = isEnabled ? 'Disable on this site' : 'Enable on this site';
   document.getElementById('analysis').textContent = state.analysisEnabled ? 'Disable page analysis' : 'Enable page analysis';
 }
 
 (async function initialize() {
   const tab = await getTab();
-  state.host = tab && tab.url ? new URL(tab.url).hostname : '';
+  state.tabId = tab?.id || null;
+  state.sitePattern = patternFor(tab);
+  state.host = tab?.url ? new URL(tab.url).hostname : '';
 
   const result = await chrome.storage.local.get('settings');
-  Object.assign(state, result.settings || {});
+  const settings = result.settings || {};
+  state.paused = Boolean(settings.paused);
+  state.disabledSites = Array.isArray(settings.disabledSites) ? settings.disabledSites : [];
+  state.analysisEnabled = settings.analysisEnabled !== false;
+  state.siteGranted = state.sitePattern ? await chrome.permissions.contains({ origins: [state.sitePattern] }) : false;
+  if (state.siteGranted && !state.disabledSites.includes(state.host) && state.tabId) {
+    await chrome.runtime.sendMessage({ type: 'enable-site', tabId: state.tabId });
+  }
   renderState();
 })();
 
@@ -55,28 +89,41 @@ document.querySelectorAll('[data-action]').forEach((button) => {
 
 document.getElementById('pause').addEventListener('click', async () => {
   state.paused = !state.paused;
-  await chrome.storage.local.set({ settings: state });
+  await saveSettings();
   renderState();
 });
 
 document.getElementById('site').addEventListener('click', async () => {
-  if (!state.host) {
-    setMessage('This page does not permit companion access.');
+  if (!state.host || !state.sitePattern || !state.tabId) {
+    setMessage('This browser page does not allow companion access.');
     return;
   }
 
-  if (state.disabledSites.includes(state.host)) {
-    state.disabledSites = state.disabledSites.filter((site) => site !== state.host);
-  } else {
+  if (state.siteGranted && !state.disabledSites.includes(state.host)) {
     state.disabledSites.push(state.host);
+    await saveSettings();
+    await chrome.permissions.remove({ origins: [state.sitePattern] });
+    state.siteGranted = false;
+    setMessage('LIVIA is disabled on this site.');
+  } else {
+    const granted = await chrome.permissions.request({ origins: [state.sitePattern] });
+    if (!granted) {
+      setMessage('Site access was not granted.');
+      return;
+    }
+    state.siteGranted = true;
+    state.disabledSites = state.disabledSites.filter((site) => site !== state.host);
+    await saveSettings();
+    const response = await chrome.runtime.sendMessage({ type: 'enable-site', tabId: state.tabId });
+    if (!response?.ok) setMessage('This page does not permit companion access.');
+    else setMessage('LIVIA is enabled on this site.');
   }
-  await chrome.storage.local.set({ settings: state });
   renderState();
 });
 
 document.getElementById('analysis').addEventListener('click', async () => {
   state.analysisEnabled = !state.analysisEnabled;
-  await chrome.storage.local.set({ settings: state });
+  await saveSettings();
   renderState();
 });
 

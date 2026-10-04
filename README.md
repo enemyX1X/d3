@@ -1,64 +1,57 @@
 # LIVIA
 
-Living Interactive Virtual Intelligence Avatar.
+LIVIA (Living Interactive Virtual Intelligence Avatar) is an early browser-extension MVP with a companion web app. The extension runs a local canvas overlay on sites the user explicitly enables.
 
-## Product overview
+## What works today
 
-LIVIA is a hybrid product architecture built for a browser-first companion experience:
+- A Manifest V3 extension requests access one site at a time and injects only on granted HTTP/HTTPS sites.
+- The companion follows the pointer and supports sphere, cube, ball, spaceship, drone, robot, and particle forms.
+- Appearance (form, scale, and color) is stored in extension-local storage and shared across enabled tabs.
+- Play mode creates local virtual targets from visible headings, paragraphs, links, list items, and image alt text. Clicking fires overlay-only projectiles; hits score, produce capped particle effects, and targets rebuild or respawn.
+- Page analysis excludes form content, editable controls, hidden content, and common credential/payment fields. Scene data stays in the content script and is not sent to the web app or a model.
+- The dashboard stores avatar configuration in that browser's local storage and can export a JSON configuration file.
 
-- A Vercel-hosted web app for account, configuration, dashboard, and onboarding.
-- A Manifest V3 browser extension for overlay injection, scene capture, pointer awareness, transforms, and local game behavior.
-- A shared protocol layer for typed messages between the web app and extension.
+## Not implemented
 
-This repository is intentionally structured as a production-style monorepo, but the browser extension remains limited to the permissions and security boundaries that browsers allow.
+There is no account system, cloud database or sync, real AI/model integration, image understanding, 3D renderer, cross-device persistence, or native desktop integration. The command interpreter is a small deterministic phrase parser. The dashboard does not currently configure the extension. Do not treat this MVP as a production service for sensitive workflows.
 
-## Local development
+## Development
+
+Requirements: Node.js 20 or later.
 
 ```bash
-cd livia
 npm install
 npm run dev:web
 ```
 
-Then open the local Next.js app at http://localhost:3000.
-
-## Extension build
-
-Open the extension folder and load it as an unpacked extension in Chrome/Edge:
+Run all repository checks with:
 
 ```bash
-cd livia/apps/extension
+npm run validate
 ```
 
-Then in Chrome:
+This runs web typechecking, lint, web tests, extension tests and syntax checks, and the production web build.
 
-1. Open `chrome://extensions`
-2. Enable Developer Mode
-3. Click Load unpacked
-4. Select the `apps/extension` folder
+## Install the extension locally
 
-## Required environment variables
+1. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
+2. Enable Developer mode.
+3. Choose **Load unpacked** and select `apps/extension`.
+4. Open an ordinary HTTP/HTTPS site and choose **Enable on this site** in the LIVIA popup.
+5. Choose **Play** to create local targets, click a target to shoot, and choose **Rebuild** to restore destroyed targets.
 
-Copy `.env.example` and add values if you later connect a real backend or AI provider.
+Browser-protected pages (such as browser settings and extension stores) do not allow injection. Site permission can be revoked in the popup or browser extension settings.
 
-## Deployment
+## Vercel deployment
 
-This project is designed for GitHub + Vercel deployment.
+Import the GitHub repository into Vercel with the web project root set to `apps/web`. The project uses Next.js, `npm install`, `npm run build`, and `.next` output. No production environment variables are currently required. Add authentication, database, and AI-provider variables only when those services are actually integrated.
 
-1. Push this monorepo to GitHub.
-2. Import the repository into Vercel.
-3. Set the web app as the production app.
-4. Configure the domain in Vercel DNS settings.
+## Privacy and security
 
-## Security and privacy
+- Site access is optional and granted per site.
+- The extension does not inspect form contents or cross-origin iframe contents.
+- Page-derived target labels remain local to the active tab; they are not sent to LIVIA's API.
+- Commands map to a fixed action set; arbitrary JavaScript is never executed.
+- See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
-- No secrets are committed.
-- Extension access is intentionally minimal.
-- Page analysis is restricted to visible, permitted DOM content.
-- Password, card, and private form fields are ignored.
-
-## Notes
-
-This is a feature-complete scaffold for the browser extension + Vercel web app architecture described in the product brief. Native desktop control, arbitrary page modification, and unrestricted access to all browser content are intentionally not implemented.
-"# t1" 
-"# d1" 
+Deploying the web app does not install the browser extension; users must load the unpacked extension separately.

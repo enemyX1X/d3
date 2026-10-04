@@ -15,4 +15,6 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm install
+      - run: npm run test:extension
+      - run: npm run check:extension
       - run: npm run build:web
