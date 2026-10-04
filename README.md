@@ -34,13 +34,21 @@ This runs web typechecking, lint, web tests, extension tests and syntax checks, 
 
 ## Install the extension locally
 
+Build a clean extension folder first:
+
+```bash
+npm run build:extension
+```
+
 1. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
 2. Enable Developer mode.
-3. Choose **Load unpacked** and select `apps/extension`.
+3. Choose **Load unpacked** and select the generated `dist/livia-extension` folder. Do not select the repository root.
 4. Open an ordinary HTTP/HTTPS site and choose **Enable on this site** in the LIVIA popup.
 5. Choose **Play** to create local targets, click a target to shoot, and choose **Rebuild** to restore destroyed targets.
 
 Browser-protected pages (such as browser settings and extension stores) do not allow injection. Site permission can be revoked in the popup or browser extension settings.
+
+Chrome requires a user gesture to load an unpacked extension; a website cannot install it silently. Automatic one-click distribution requires publishing through the Chrome Web Store (and the equivalent store for other browsers).
 
 ## Vercel deployment
 

@@ -12,8 +12,9 @@
     "typecheck:web": "npm --workspace apps/web run typecheck",
     "test:web": "npm --workspace apps/web run test",
     "lint:web": "npm --workspace apps/web run lint",
+    "build:extension": "node scripts/package-extension.mjs",
     "test:extension": "node --test apps/extension/tests/*.test.cjs",
     "check:extension": "node --check apps/extension/core.js && node --check apps/extension/content.js && node --check apps/extension/background.js && node --check apps/extension/popup.js",
-    "validate": "npm run typecheck:web && npm run lint:web && npm run test:web && npm run test:extension && npm run check:extension && npm run build:web"
+    "validate": "npm run typecheck:web && npm run lint:web && npm run test:web && npm run test:extension && npm run check:extension && npm run build:extension && npm run build:web"
   }
 }
