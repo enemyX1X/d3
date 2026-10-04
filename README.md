@@ -44,7 +44,7 @@ npm run build:extension
 2. Enable Developer mode.
 3. Choose **Load unpacked** and select the generated `dist/livia-extension` folder. Do not select the repository root.
 4. Leave `chrome://extensions`, open an ordinary page such as `https://example.com`, open the LIVIA popup, and choose **Enable on this site**. Browser pages like `chrome://extensions` are protected and cannot host the companion.
-5. Choose **Play** to create local targets; LIVIA anchors bottom-left to give you room to aim. Hold left-click or Space for continuous golden bullets, or right-click / press M to launch a locally guided missile. Synthesized weapon sounds run locally. Text breaks into glyph debris and smoke; image copies break into glass-like shards. After every target is destroyed, the LIVIA overlay clears for 60 seconds and then rescans. The actual webpage remains visible and unchanged.
+5. Choose **Play** to create local targets; LIVIA anchors bottom-left to give you room to aim. Hold left-click or Space for continuous golden bullets, or right-click / press M to launch a locally guided missile. Synthesized weapon sounds run locally. Text breaks into glyph debris and smoke; image copies break into glass-like shards. After every target is destroyed, a blank overlay covers the viewport for 60 seconds and targets rescan afterward. The underlying webpage remains unchanged.
 
 Browser-protected pages (such as browser settings and extension stores) do not allow injection. Site permission can be revoked in the popup or browser extension settings.
 

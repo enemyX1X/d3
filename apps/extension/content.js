@@ -174,11 +174,13 @@
     ctx.restore();
   }
 
+  function drawTargetMask(target) {
+    const bounds = target.bounds;
+    ctx.fillStyle = target.coverColor || '#fff';
+    ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
+  }
+
   function drawTarget(target, now) {
-    if (target.destroyed && now - target.destroyedAt >= 5200) {
-      target.destroyed = false;
-      target.rebuildStartedAt = 0;
-    }
     if (target.destroyed && !target.rebuildStartedAt) return;
 
     let alpha = 1;
@@ -194,6 +196,12 @@
     }
 
     const bounds = target.bounds;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = target.coverColor || '#fff';
+    ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
+    ctx.restore();
+
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.translate(bounds.x + bounds.w / 2, bounds.y + bounds.h / 2);
@@ -219,14 +227,32 @@
     ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
     ctx.shadowBlur = 0;
     if (target.type !== 'IMAGE') {
-      ctx.fillStyle = '#f4fbff';
-      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillStyle = target.textColor || '#17212b';
+      ctx.font = target.font || '12px system-ui, sans-serif';
       ctx.textBaseline = 'top';
       ctx.save();
       ctx.beginPath();
       ctx.rect(bounds.x + 4, bounds.y + 4, Math.max(0, bounds.w - 8), Math.max(0, bounds.h - 8));
       ctx.clip();
-      ctx.fillText(target.text, bounds.x + 6, bounds.y + 6, Math.max(0, bounds.w - 12));
+      const words = target.text.split(/\s+/);
+      const maxWidth = Math.max(0, bounds.w - 12);
+      const lineHeight = target.lineHeight || 15;
+      let line = '';
+      let lineY = bounds.y + 6;
+      for (const word of words) {
+        const next = line ? `${line} ${word}` : word;
+        if (line && ctx.measureText(next).width > maxWidth) {
+          ctx.fillText(line, bounds.x + 6, lineY, maxWidth);
+          lineY += lineHeight;
+          line = word;
+          if (lineY + lineHeight > bounds.y + bounds.h - 2) break;
+        } else {
+          line = next;
+        }
+      }
+      if (line && lineY + lineHeight <= bounds.y + bounds.h + lineHeight) {
+        ctx.fillText(line, bounds.x + 6, lineY, maxWidth);
+      }
       ctx.restore();
     }
     ctx.restore();
@@ -248,7 +274,10 @@
       })));
       if (game.glassShards.length > 128) game.glassShards.splice(0, game.glassShards.length - 128);
     } else {
-      game.textDebris.push(...LIVIACore.createTextDebris(target.text, target.bounds));
+      game.textDebris.push(...LIVIACore.createTextDebris(target.text, target.bounds).map((piece) => ({
+        ...piece,
+        color: target.textColor || '#17212b'
+      })));
       if (game.textDebris.length > 144) game.textDebris.splice(0, game.textDebris.length - 144);
     }
     game.particles.push(...LIVIACore.createFragments(target.bounds, 10));
@@ -356,6 +385,7 @@
   }
 
   function drawGame(now) {
+    for (const target of game.targets) drawTargetMask(target);
     for (const target of game.targets) drawTarget(target, now);
     for (const puff of game.smoke) drawSmoke(puff);
 
@@ -414,7 +444,7 @@
       ctx.translate(piece.x, piece.y);
       ctx.rotate(piece.rotation);
       ctx.font = `600 ${piece.size}px system-ui, sans-serif`;
-      ctx.fillStyle = '#f4fbff';
+      ctx.fillStyle = piece.color;
       ctx.fillText(piece.glyph, 0, 0);
       ctx.restore();
     }
@@ -437,8 +467,8 @@
     const life = Math.max(0, puff.life / puff.maxLife);
     const radius = puff.size * (1.4 - life * 0.35);
     const gradient = ctx.createRadialGradient(puff.x, puff.y, 0, puff.x, puff.y, radius);
-    gradient.addColorStop(0, `rgba(186, 202, 211, ${0.18 * life})`);
-    gradient.addColorStop(0.68, `rgba(111, 137, 151, ${0.12 * life})`);
+    gradient.addColorStop(0, `rgba(77, 89, 99, ${0.44 * life})`);
+    gradient.addColorStop(0.68, `rgba(111, 126, 137, ${0.30 * life})`);
     gradient.addColorStop(1, 'rgba(77, 96, 108, 0)');
     ctx.fillStyle = gradient;
     ctx.beginPath();
@@ -634,6 +664,8 @@
           refreshTargets();
         }
         if (game.clearUntil && !game.clearPendingAt && now < game.clearUntil) {
+          ctx.fillStyle = '#05070d';
+          ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
           frameId = requestAnimationFrame(animate);
           return;
         }
@@ -651,6 +683,18 @@
 
   function scanVisibleText() {
     if (!state.analysisEnabled) return [];
+
+    function getCoverColor(element) {
+      let current = element;
+      while (current) {
+        const color = window.getComputedStyle(current).backgroundColor;
+        if (color && color !== 'transparent') {
+          if (!color.startsWith('rgba(') || Number(color.slice(5, -1).split(',')[3]) >= 0.95) return color;
+        }
+        current = current.parentElement;
+      }
+      return '#fff';
+    }
 
     const nodes = Array.from(document.body.querySelectorAll('h1, h2, h3, h4, p, li, a, [role="heading"], img'));
     const items = [];
@@ -676,7 +720,11 @@
       items.push({
         id: node.id || `el-${Math.random().toString(36).slice(2)}`,
         type: isImage ? 'IMAGE' : 'TEXT',
-        text: text.slice(0, 120),
+        text: text.slice(0, 360),
+        coverColor: getCoverColor(node),
+        textColor: style.color,
+        font: style.font,
+        lineHeight: Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.2,
         imageElement,
         bounds: { x, y, w: Math.min(rect.right, window.innerWidth) - x, h: Math.min(rect.bottom, window.innerHeight) - y }
       });
