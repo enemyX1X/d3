@@ -39,10 +39,8 @@
     clearUntil: 0,
     audioContext: null,
     startedAt: 0,
-    sweepStartedAt: 0,
-    sweepDuration: 0,
-    sweepIndex: 0,
-    clearSeconds: 0
+    clearSeconds: 0,
+    totalTargets: 0
   };
 
   const overlay = document.createElement('div');
@@ -246,18 +244,14 @@
     ctx.restore();
   }
 
-  function destroyTarget(target, now, automatic = false) {
+  function destroyTarget(target, now) {
     if (!target || target.destroyed) return;
     target.destroyed = true;
     target.destroyedAt = now;
     target.rebuildStartedAt = 0;
-    if (automatic) {
-      game.score += 10;
-    } else {
-      game.combo = now - game.lastHitAt < 1400 ? game.combo + 1 : 1;
-      game.lastHitAt = now;
-      game.score += LIVIACore.points(game.combo);
-    }
+    game.combo = now - game.lastHitAt < 1400 ? game.combo + 1 : 1;
+    game.lastHitAt = now;
+    game.score += LIVIACore.points(game.combo);
     if (target.type === 'IMAGE') {
       game.glassShards.push(...LIVIACore.createGlassShards(target.bounds, 32).map((shard) => ({
         ...shard,
@@ -280,7 +274,6 @@
     const clearPlan = LIVIACore.planSceneClear(game.targets, now);
     if (clearPlan) {
       game.firing = false;
-      game.sweepStartedAt = 0;
       game.clearSeconds = game.startedAt ? Math.max(0, (now - game.startedAt) / 1000) : 0;
       game.score += Math.max(0, Math.round((10 - game.clearSeconds) * 25));
       game.clearPendingAt = clearPlan.blankAt;
@@ -289,15 +282,6 @@
   }
 
   function updateGame(delta, now) {
-    if (game.sweepStartedAt && game.targets.length) {
-      const progress = Math.min(1, (now - game.sweepStartedAt) / game.sweepDuration);
-      const limit = LIVIACore.sceneSweepLimit(game.targets.length, progress);
-      while (game.sweepIndex < limit) {
-        destroyTarget(game.targets[game.sweepIndex], now, true);
-        game.sweepIndex += 1;
-      }
-      if (progress >= 1) game.sweepStartedAt = 0;
-    }
     if (game.firing && now >= game.nextMachineShotAt) fireMachineGun(now);
 
     for (let index = game.projectiles.length - 1; index >= 0; index -= 1) {
@@ -461,12 +445,8 @@
     ctx.fillText(`SCORE ${game.score}   COMBO ${game.combo}`, 16, 16);
     ctx.font = '11px system-ui, sans-serif';
     ctx.fillStyle = '#d7e7f2';
-    if (game.sweepStartedAt) {
-      const progress = Math.min(1, (now - game.sweepStartedAt) / game.sweepDuration);
-      ctx.fillText(`AUTO SWEEP  ${Math.round(progress * 100)}%`, 16, 34);
-    } else {
-      ctx.fillText('LMB / SPACE  MACHINE GUN     RMB / M  MISSILE', 16, 34);
-    }
+    const remainingTargets = game.targets.reduce((remaining, target) => remaining + Number(!target.destroyed), 0);
+    ctx.fillText(`TARGETS  ${remainingTargets}/${game.totalTargets}     LMB / SPACE  FIRE     RMB / M  MISSILE`, 16, 34);
     ctx.restore();
 
     drawReticle();
@@ -671,11 +651,6 @@
     }
   }
 
-  function destroyAllTargets() {
-    const now = performance.now();
-    for (const target of game.targets) destroyTarget(target, now);
-  }
-
   function animate() {
     if (document.hidden) {
       frameId = 0;
@@ -699,8 +674,10 @@
         }
         if (game.clearUntil && now >= game.clearUntil) {
           game.clearUntil = 0;
+          avatar.mode = 'companion';
           game.startedAt = 0;
-          refreshTargets();
+          game.targets = [];
+          game.totalTargets = 0;
         }
         if (game.clearUntil && !game.clearPendingAt && now < game.clearUntil) {
           drawClearScorecard(now);
@@ -825,6 +802,9 @@
 
   function onPointerDown(event) {
     if (avatar.mode !== 'play' || !shouldOperate()) return;
+    if (event.button !== 0 && event.button !== 2) return;
+    event.preventDefault();
+    event.stopPropagation();
     state.pointer.x = event.clientX;
     state.pointer.y = event.clientY;
     if (event.button === 0) {
@@ -836,11 +816,18 @@
   }
 
   function onPointerUp(event) {
+    if (avatar.mode === 'play' && shouldOperate() && (event.button === 0 || event.button === 2)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
     if (event.button === 0) game.firing = false;
   }
 
   function onContextMenu(event) {
-    if (avatar.mode === 'play' && shouldOperate()) event.preventDefault();
+    if (avatar.mode === 'play' && shouldOperate()) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
   }
 
   function onKeyDown(event) {
@@ -849,10 +836,12 @@
     if (target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
     if (event.code === 'Space') {
       event.preventDefault();
+      event.stopPropagation();
       game.firing = true;
       fireMachineGun();
     } else if (event.code === 'KeyM') {
       event.preventDefault();
+      event.stopPropagation();
       fireMissile();
     }
   }
@@ -905,8 +894,6 @@
           game.combo = 0;
           game.clearSeconds = 0;
           game.startedAt = performance.now();
-          game.sweepStartedAt = 0;
-          game.sweepIndex = 0;
           game.projectiles = [];
           game.particles = [];
           game.smoke = [];
@@ -920,8 +907,7 @@
             return true;
           }
           game.startedAt = performance.now();
-          game.sweepDuration = LIVIACore.sceneSweepDuration(game.targets.length);
-          game.sweepStartedAt = game.startedAt;
+          game.totalTargets = game.targets.length;
         } else {
           game.targets = [];
           game.projectiles = [];
@@ -930,11 +916,13 @@
           game.glassShards = [];
           game.tracers = [];
           game.firing = false;
-          game.sweepStartedAt = 0;
           game.startedAt = 0;
         }
       }
-      if (action.action === 'destroy') destroyAllTargets();
+      if (action.action === 'destroy') {
+        sendResponse({ ok: false, error: 'Use the mouse or keyboard weapons to clear targets.' });
+        return true;
+      }
       if (action.action === 'rebuild') rebuildTargets();
       if (action.action === 'move') {
         avatar.x = state.pointer.x;
@@ -955,9 +943,9 @@
     if (changes.avatar) applyAvatar(changes.avatar.newValue);
   });
   document.addEventListener('pointermove', onPointerMove);
-  document.addEventListener('pointerdown', onPointerDown);
-  document.addEventListener('pointerup', onPointerUp);
-  document.addEventListener('contextmenu', onContextMenu);
+  document.addEventListener('pointerdown', onPointerDown, true);
+  document.addEventListener('pointerup', onPointerUp, true);
+  document.addEventListener('contextmenu', onContextMenu, true);
   document.addEventListener('keydown', onKeyDown);
   document.addEventListener('keyup', onKeyUp);
   window.addEventListener('blur', () => { game.firing = false; });

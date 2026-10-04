@@ -34,14 +34,6 @@ test('scene clear waits for debris then blanks for one minute', () => {
   assert.equal(core.planSceneClear([], 500), null);
 });
 
-test('automatic scene sweep scales with target count and clamps progress', () => {
-  assert.equal(core.sceneSweepDuration(0), 1800);
-  assert.equal(core.sceneSweepDuration(1000), 3000);
-  assert.equal(core.sceneSweepDuration(5000), 6000);
-  assert.equal(core.sceneSweepLimit(200, 0.25), 50);
-  assert.equal(core.sceneSweepLimit(200, 2), 200);
-});
-
 test('fragment effects stay within the configured cap', () => {
   const fragments = core.createFragments({ x: 0, y: 0, w: 20, h: 10 }, 1000, () => 0.5);
 

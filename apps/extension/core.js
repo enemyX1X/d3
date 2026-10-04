@@ -101,15 +101,6 @@
     return { blankAt, respawnAt: blankAt + Math.max(0, blankDuration) };
   }
 
-  function sceneSweepDuration(targetCount) {
-    return Math.max(1800, Math.min(6000, Math.ceil(targetCount) * 3));
-  }
-
-  function sceneSweepLimit(targetCount, progress) {
-    const fraction = Math.min(1, Math.max(0, progress));
-    return Math.ceil(Math.max(0, targetCount) * fraction);
-  }
-
   function hitTest(targets, point) {
     for (let index = targets.length - 1; index >= 0; index -= 1) {
       const target = targets[index];
@@ -245,7 +236,7 @@
     }));
   }
 
-  const api = { FORMS, parse, valid, isSensitive, aim, rebuildProgress, points, planSceneClear, sceneSweepDuration, sceneSweepLimit, hitTest, hitTestSegment, createFragments, createTextDebris, createGlassShards, createSmoke };
+  const api = { FORMS, parse, valid, isSensitive, aim, rebuildProgress, points, planSceneClear, hitTest, hitTestSegment, createFragments, createTextDebris, createGlassShards, createSmoke };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {
