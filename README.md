@@ -61,3 +61,4 @@ This project is designed for GitHub + Vercel deployment.
 
 This is a feature-complete scaffold for the browser extension + Vercel web app architecture described in the product brief. Native desktop control, arbitrary page modification, and unrestricted access to all browser content are intentionally not implemented.
 "# t1" 
+"# d1" 
