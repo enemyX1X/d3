@@ -40,7 +40,9 @@
     audioContext: null,
     startedAt: 0,
     clearSeconds: 0,
-    totalTargets: 0
+    totalTargets: 0,
+    screenFlash: 0,
+    screenShake: 0
   };
 
   const overlay = document.createElement('div');
@@ -270,6 +272,13 @@
     if (game.particles.length > 160) game.particles.splice(0, game.particles.length - 160);
     game.smoke.push(...LIVIACore.createSmoke(target.bounds, target.type === 'IMAGE' ? 14 : 9));
     if (game.smoke.length > 96) game.smoke.splice(0, game.smoke.length - 96);
+    game.tracers.push({
+      x1: target.bounds.x + target.bounds.w / 2,
+      y1: target.bounds.y + target.bounds.h / 2,
+      x2: target.bounds.x + target.bounds.w / 2 + (Math.random() - 0.5) * 14,
+      y2: target.bounds.y + target.bounds.h / 2 + (Math.random() - 0.5) * 14,
+      life: 0.12
+    });
 
     const clearPlan = LIVIACore.planSceneClear(game.targets, now);
     if (clearPlan) {
@@ -282,6 +291,9 @@
   }
 
   function updateGame(delta, now) {
+    game.screenFlash = Math.max(0, game.screenFlash - delta * 1.8);
+    game.screenShake = Math.max(0, game.screenShake * 0.86 - delta * 1.5);
+
     if (game.firing && now >= game.nextMachineShotAt) fireMachineGun(now);
 
     for (let index = game.projectiles.length - 1; index >= 0; index -= 1) {
@@ -373,11 +385,15 @@
   }
 
   function drawGame(now) {
+    const shakeX = (Math.random() - 0.5) * game.screenShake;
+    const shakeY = (Math.random() - 0.5) * game.screenShake;
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+
     for (const target of game.targets) drawTargetMask(target);
     for (const target of game.targets) drawTarget(target, now);
     for (const puff of game.smoke) drawSmoke(puff);
 
-    ctx.save();
     ctx.fillStyle = avatar.color;
     ctx.shadowColor = avatar.color;
     ctx.shadowBlur = 10;
@@ -447,6 +463,11 @@
     ctx.fillStyle = '#d7e7f2';
     const remainingTargets = game.targets.reduce((remaining, target) => remaining + Number(!target.destroyed), 0);
     ctx.fillText(`TARGETS  ${remainingTargets}/${game.totalTargets}     LMB / SPACE  FIRE     RMB / M  MISSILE`, 16, 34);
+
+    if (game.screenFlash > 0.02) {
+      ctx.fillStyle = `rgba(255, 250, 220, ${Math.min(0.18, game.screenFlash)})`;
+      ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+    }
     ctx.restore();
 
     drawReticle();
@@ -454,15 +475,21 @@
 
   function drawClearScorecard(now) {
     ctx.save();
-    const width = Math.min(440, window.innerWidth - 40);
-    const height = 196;
+    const width = Math.min(520, window.innerWidth - 32);
+    const height = 220;
     const x = (window.innerWidth - width) / 2;
     const y = (window.innerHeight - height) / 2;
     const secondsRemaining = Math.max(0, Math.ceil((game.clearUntil - now) / 1000));
+    const wipeAlpha = Math.min(1, 0.72 + Math.sin(now / 180) * 0.08);
 
-    ctx.fillStyle = '#05070d';
+    const bg = ctx.createRadialGradient(window.innerWidth / 2, window.innerHeight / 2, 40, window.innerWidth / 2, window.innerHeight / 2, Math.max(window.innerWidth, window.innerHeight) * 0.7);
+    bg.addColorStop(0, `rgba(17, 24, 37, ${0.42 + wipeAlpha * 0.38})`);
+    bg.addColorStop(0.5, 'rgba(4, 8, 15, 0.9)');
+    bg.addColorStop(1, 'rgba(1, 2, 4, 1)');
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
-    ctx.fillStyle = '#0a131e';
+
+    ctx.fillStyle = 'rgba(5, 12, 18, 0.8)';
     ctx.strokeStyle = '#7cf3ff';
     ctx.lineWidth = 1.5;
     ctx.shadowColor = '#7cf3ff';
@@ -473,15 +500,18 @@
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#7cf3ff';
-    ctx.font = '700 19px system-ui, sans-serif';
-    ctx.fillText('SCREEN CLEARED', window.innerWidth / 2, y + 42);
+    ctx.font = '700 18px system-ui, sans-serif';
+    ctx.fillText('SCREEN WIPED', window.innerWidth / 2, y + 38);
+    ctx.fillStyle = '#dfefff';
+    ctx.font = '700 38px system-ui, sans-serif';
+    ctx.fillText(`${game.clearSeconds.toFixed(2)} s`, window.innerWidth / 2, y + 94);
     ctx.fillStyle = '#f3f7fb';
     ctx.font = '600 15px system-ui, sans-serif';
-    ctx.fillText(`CLEAR TIME  ${game.clearSeconds.toFixed(2)} s`, window.innerWidth / 2, y + 90);
-    ctx.fillText(`SCORE  ${game.score}`, window.innerWidth / 2, y + 120);
+    ctx.fillText(`CLEAR TIME`, window.innerWidth / 2, y + 124);
+    ctx.fillText(`SCORE  ${game.score}`, window.innerWidth / 2, y + 154);
     ctx.fillStyle = '#93a8b7';
     ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText(`NEXT SCENE IN ${secondsRemaining}s`, window.innerWidth / 2, y + 160);
+    ctx.fillText(`NEXT SCENE IN ${secondsRemaining}s`, window.innerWidth / 2, y + 188);
     ctx.textAlign = 'start';
     ctx.restore();
   }
@@ -593,7 +623,7 @@
     const velocity = LIVIACore.aim(avatar, targetPoint, speed, { x: 1, y: 0 });
     const angle = Math.atan2(velocity.vy, velocity.vx) + (Math.random() - 0.5) * 0.025;
     const distance = Math.max(18, Math.hypot(targetPoint.x - avatar.x, targetPoint.y - avatar.y));
-    game.projectiles.push({
+    const bullet = {
       kind: 'bullet',
       x: avatar.x,
       y: avatar.y,
@@ -602,12 +632,25 @@
       life: 1.35,
       range: distance,
       distanceTravelled: 0
-    });
+    };
+    game.projectiles.push(bullet);
     if (game.projectiles.filter((projectile) => projectile.kind === 'bullet').length > 84) {
       const oldest = game.projectiles.findIndex((projectile) => projectile.kind === 'bullet');
       if (oldest >= 0) game.projectiles.splice(oldest, 1);
     }
+    const muzzleX = avatar.x + Math.cos(angle) * 18;
+    const muzzleY = avatar.y + Math.sin(angle) * 18;
+    game.tracers.push({
+      x1: muzzleX,
+      y1: muzzleY,
+      x2: muzzleX + Math.cos(angle) * 54,
+      y2: muzzleY + Math.sin(angle) * 54,
+      life: 0.1
+    });
+    game.particles.push(...LIVIACore.createFragments({ x: muzzleX - 10, y: muzzleY - 10, w: 20, h: 20 }, 4));
     game.nextMachineShotAt = now + 72;
+    game.screenFlash = Math.min(1, game.screenFlash + 0.18);
+    game.screenShake = Math.min(20, game.screenShake + 3.8);
     playWeaponSound('gun');
   }
 
@@ -621,7 +664,7 @@
     const origin = Math.hypot(targetPoint.x - avatar.x, targetPoint.y - avatar.y) < 36
       ? { x: targetPoint.x - velocity.vx / speed * 54, y: targetPoint.y - velocity.vy / speed * 54 }
       : { x: avatar.x, y: avatar.y };
-    game.projectiles.push({
+    const missile = {
       kind: 'missile',
       x: origin.x,
       y: origin.y,
@@ -630,9 +673,19 @@
       target,
       targetPoint,
       life: 2.2
-    });
+    };
+    game.projectiles.push(missile);
     const missiles = game.projectiles.filter((projectile) => projectile.kind === 'missile');
     if (missiles.length > 12) game.projectiles.splice(game.projectiles.indexOf(missiles[0]), 1);
+    game.tracers.push({
+      x1: origin.x,
+      y1: origin.y,
+      x2: origin.x + velocity.vx * 0.12,
+      y2: origin.y + velocity.vy * 0.12,
+      life: 0.18
+    });
+    game.screenFlash = Math.min(1, game.screenFlash + 0.22);
+    game.screenShake = Math.min(26, game.screenShake + 5.4);
     playWeaponSound('missile');
   }
 
@@ -671,6 +724,8 @@
           game.textDebris = [];
           game.glassShards = [];
           game.tracers = [];
+          game.screenFlash = 1;
+          game.screenShake = 18;
         }
         if (game.clearUntil && now >= game.clearUntil) {
           game.clearUntil = 0;
