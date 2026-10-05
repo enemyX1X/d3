@@ -1,4 +1,5 @@
 const contentFiles = ['core.js', 'livia-character.js', 'content.js'];
+const pendingInjections = new Map();
 
 function sitePattern(rawUrl) {
   try {
@@ -23,9 +24,29 @@ async function injectIntoTab(tab) {
     return { ok: false, error: 'LIVIA is disabled on this site. Enable it again from the popup.' };
   }
 
+  const pending = pendingInjections.get(tab.id);
+  if (pending) return pending;
+
+  const injection = injectOrSync(tab.id);
+  pendingInjections.set(tab.id, injection);
   try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: contentFiles });
-    await chrome.tabs.sendMessage(tab.id, { type: 'sync' });
+    return await injection;
+  } finally {
+    if (pendingInjections.get(tab.id) === injection) pendingInjections.delete(tab.id);
+  }
+}
+
+async function injectOrSync(tabId) {
+  try {
+    const existing = await chrome.tabs.sendMessage(tabId, { type: 'sync' });
+    if (existing?.ok) return { ok: true };
+  } catch {
+    // No live companion listener exists yet; inject the runtime once.
+  }
+
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: contentFiles });
+    await chrome.tabs.sendMessage(tabId, { type: 'sync' });
     return { ok: true };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
