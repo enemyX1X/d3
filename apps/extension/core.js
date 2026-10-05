@@ -77,6 +77,8 @@
       'movie_player',
       'html5-video-player',
       'html5-video-container',
+      'html5-main-video',
+      'video-stream',
       'ytp-player-content',
       'ytp-iv-video-content',
       'ytd-player',

@@ -964,7 +964,7 @@
     if (!state.analysisEnabled) return [];
     const items = [];
     const maxTargets = 2400;
-    const ignored = 'form, input, textarea, select, button, [contenteditable="true"], [role="textbox"], [aria-hidden="true"], [data-livia-ignore], script, style, noscript, svg, #livia-companion';
+    const ignored = 'form, input, textarea, select, button, [contenteditable="true"], [role="textbox"], [data-livia-ignore], script, style, noscript, svg, #livia-companion';
 
     function collectOpenRoots(root) {
       const roots = [root];
@@ -981,10 +981,10 @@
       return roots;
     }
 
-    function isIgnored(element) {
+    function isIgnored(element, includeAriaHidden = true) {
       let current = element;
       while (current) {
-        if (current.matches?.(ignored) || current.matches?.('[hidden], [inert], [aria-hidden="true"]')) return true;
+        if (current.matches?.(ignored) || current.matches?.('[hidden], [inert]') || (includeAriaHidden && current.matches?.('[aria-hidden="true"]'))) return true;
         current = current.parentElement || current.getRootNode?.().host || null;
       }
       return false;
@@ -992,10 +992,13 @@
 
     const roots = collectOpenRoots(document.body || document.documentElement || document);
 
-    function isNonInteractiveSurface(element) {
+    function isNonInteractiveSurface(element, allowAriaHidden = false) {
       if (!(element instanceof Element)) return false;
       if (element.closest?.('button, input, textarea, select, summary, [role="button"], [role="textbox"]')) return true;
-      return Boolean(element.closest?.('[hidden], [inert], [aria-hidden="true"], [data-livia-ignore]'));
+      const excluded = allowAriaHidden
+        ? '[hidden], [inert], [data-livia-ignore]'
+        : '[hidden], [inert], [aria-hidden="true"], [data-livia-ignore]';
+      return Boolean(element.closest?.(excluded));
     }
 
     function getCoverColor(element) {
@@ -1010,9 +1013,9 @@
       return '#fff';
     }
 
-    function visibleStyle(element) {
-      if (!(element instanceof Element) || isSensitive(element) || isIgnored(element) || isNonInteractiveSurface(element)) return null;
-      if (element.hidden || element.closest?.('[hidden], [inert], [aria-hidden="true"]')) return null;
+    function visibleStyle(element, isMedia = false) {
+      if (!(element instanceof Element) || isSensitive(element) || isIgnored(element, !isMedia) || isNonInteractiveSurface(element, isMedia)) return null;
+      if (element.hidden || element.closest?.('[hidden], [inert]') || (!isMedia && element.closest?.('[aria-hidden="true"]'))) return null;
       const style = window.getComputedStyle(element);
       if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05) return null;
       const rect = element.getBoundingClientRect();
@@ -1021,14 +1024,17 @@
     }
 
     function addVisualTarget(element, fallbackFrame = false) {
-      if (items.length >= 320 || !visibleStyle(element)) return;
+      if (items.length >= 320 || !visibleStyle(element, true)) return;
       const rect = element.getBoundingClientRect();
       const isFrame = fallbackFrame || element instanceof HTMLIFrameElement;
       const minimumSize = isFrame ? 64 : 28;
       if (rect.width < minimumSize || rect.height < minimumSize || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) return;
 
-      const isPrimaryVideoViewport = LIVIACore.isPrimaryViewportCandidate(element, rect, window.innerWidth, window.innerHeight);
-      if (isPrimaryVideoViewport) return;
+      let current = element;
+      while (current) {
+        if (LIVIACore.isPrimaryViewportCandidate(current, current.getBoundingClientRect(), window.innerWidth, window.innerHeight)) return;
+        current = current.parentElement || current.getRootNode?.().host || null;
+      }
 
       if (fallbackFrame) {
         const area = Math.max(1, rect.width * rect.height);
