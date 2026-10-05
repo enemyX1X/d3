@@ -1,19 +1,19 @@
 # LIVIA
 
-LIVIA (Living Interactive Virtual Intelligence Avatar) is an early browser-extension MVP with a companion web app. The extension runs a local canvas overlay on sites the user explicitly enables.
+LIVIA (Living Interactive Virtual Intelligence Avatar) is an early browser-extension MVP with a companion web app. The extension runs a local WebGL character and Canvas gameplay overlay on sites the user explicitly enables.
 
 ## What works today
 
 - A Manifest V3 extension requests access one site at a time and injects only on granted HTTP/HTTPS sites.
-- The companion follows the pointer and supports sphere, cube, ball, spaceship, drone, robot, and particle forms.
-- Appearance (form, scale, and color) is stored in extension-local storage and shared across enabled tabs.
+- The supplied animated robot follows the pointer; its Walk animation responds to movement and its Jump animation reacts to manual fire.
+- Character scale and accent color are stored in extension-local storage and shared across enabled tabs.
 - Play mode creates local virtual targets from visible headings, paragraphs, links, list items, and image alt text. Clicking fires overlay-only projectiles; hits score, produce capped particle effects, and targets rebuild or respawn.
 - Page analysis excludes form content, editable controls, hidden content, and common credential/payment fields. Scene data stays in the content script and is not sent to the web app or a model.
 - The dashboard stores avatar configuration in that browser's local storage and can export a JSON configuration file.
 
 ## Not implemented
 
-There is no account system, cloud database or sync, real AI/model integration, image understanding, 3D renderer, cross-device persistence, or native desktop integration. The command interpreter is a small deterministic phrase parser. The dashboard does not currently configure the extension. Do not treat this MVP as a production service for sensitive workflows.
+There is no account system, cloud database or sync, real AI/model integration, image understanding, full 3D world renderer, cross-device persistence, or native desktop integration. The command interpreter is a small deterministic phrase parser. The dashboard does not currently configure the extension. Do not treat this MVP as a production service for sensitive workflows.
 
 ## Development
 

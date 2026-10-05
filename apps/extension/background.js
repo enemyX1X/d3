@@ -1,4 +1,4 @@
-const contentFiles = ['core.js', 'content.js'];
+const contentFiles = ['core.js', 'livia-character.js', 'content.js'];
 
 function sitePattern(rawUrl) {
   try {

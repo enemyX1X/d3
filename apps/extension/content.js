@@ -54,9 +54,14 @@
   canvas.height = window.innerHeight;
   canvas.style.cssText = 'width:100%;height:100%;display:block;';
   overlay.appendChild(canvas);
+
+  const characterCanvas = document.createElement('canvas');
+  characterCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;';
+  overlay.insertBefore(characterCanvas, canvas);
   document.documentElement.appendChild(overlay);
 
   const ctx = canvas.getContext('2d');
+  const character = self.LIVIACharacter?.create(characterCanvas, chrome.runtime.getURL('assets/box-02_robot.glb'));
   let frameId = 0;
   let lastFrameAt = 0;
   let scanTimer = 0;
@@ -108,6 +113,8 @@
 
   function drawAvatar() {
     if (!ctx) return;
+    const previousX = avatar.x;
+    const previousY = avatar.y;
     const size = 22 * avatar.scale;
     if (avatar.mode === 'play') {
       avatar.x = Math.min(64, window.innerWidth * 0.2);
@@ -117,6 +124,17 @@
       avatar.vy *= 0.82;
       avatar.x += (state.pointer.x - avatar.x) * 0.08 + avatar.vx;
       avatar.y += (state.pointer.y - avatar.y) * 0.08 + avatar.vy;
+    }
+
+    if (character) {
+      character.update({
+        x: avatar.x,
+        y: avatar.y,
+        heading: Math.atan2(state.pointer.x - avatar.x, avatar.y - state.pointer.y),
+        moving: Math.hypot(avatar.x - previousX, avatar.y - previousY) > 0.45,
+        scale: avatar.scale
+      });
+      if (character.ready) return;
     }
 
     ctx.save();
@@ -686,6 +704,7 @@
     });
     game.screenFlash = Math.min(1, game.screenFlash + 0.22);
     game.screenShake = Math.min(26, game.screenShake + 5.4);
+    character?.jump();
     playWeaponSound('missile');
   }
 
@@ -864,6 +883,7 @@
     state.pointer.y = event.clientY;
     if (event.button === 0) {
       game.firing = true;
+      character?.jump();
       fireMachineGun();
     } else if (event.button === 2) {
       fireMissile();
@@ -893,6 +913,7 @@
       event.preventDefault();
       event.stopPropagation();
       game.firing = true;
+      character?.jump();
       fireMachineGun();
     } else if (event.code === 'KeyM') {
       event.preventDefault();
