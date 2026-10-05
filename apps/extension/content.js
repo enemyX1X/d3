@@ -366,6 +366,29 @@
     ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
   }
 
+  function mediaSize(element) {
+    if (element instanceof HTMLImageElement && element.complete && element.naturalWidth > 0) {
+      return { width: element.naturalWidth, height: element.naturalHeight };
+    }
+    if (element instanceof HTMLVideoElement && element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && element.videoWidth > 0) {
+      return { width: element.videoWidth, height: element.videoHeight };
+    }
+    if (element instanceof HTMLCanvasElement && element.width > 0 && element.height > 0) {
+      return { width: element.width, height: element.height };
+    }
+    return null;
+  }
+
+  function drawMediaSurface(element, bounds) {
+    if (!mediaSize(element)) return false;
+    try {
+      ctx.drawImage(element, bounds.x, bounds.y, bounds.w, bounds.h);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function drawTarget(target, now) {
     if (target.destroyed && !target.rebuildStartedAt) return;
 
@@ -389,18 +412,25 @@
       ctx.scale(scale, scale);
       ctx.translate(-(bounds.x + bounds.w / 2), -(bounds.y + bounds.h / 2));
     }
-    if (target.type === 'IMAGE' && target.imageElement?.complete && target.imageElement.naturalWidth > 0) {
-      try {
-        ctx.drawImage(target.imageElement, bounds.x, bounds.y, bounds.w, bounds.h);
-      } catch {
+    if (target.type === 'IMAGE') {
+      if (!drawMediaSurface(target.imageElement, bounds)) {
         ctx.fillStyle = target.coverColor || '#fff';
         ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
       }
-    } else if (target.type === 'IMAGE') {
-      ctx.fillStyle = target.coverColor || '#fff';
+    } else if (target.type === 'FRAME') {
+      ctx.fillStyle = target.coverColor || 'rgba(12, 18, 28, 0.96)';
       ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
+      ctx.strokeStyle = 'rgba(124, 243, 255, 0.72)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(bounds.x + 1, bounds.y + 1, Math.max(0, bounds.w - 2), Math.max(0, bounds.h - 2));
+      ctx.fillStyle = '#d9f7ff';
+      ctx.font = '600 12px system-ui, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+      ctx.fillText(target.text || 'EMBEDDED PLAYER', bounds.x + bounds.w / 2, bounds.y + bounds.h / 2, Math.max(0, bounds.w - 16));
+      ctx.textAlign = 'start';
     }
-    if (target.type !== 'IMAGE') {
+    if (target.type === 'TEXT') {
       ctx.fillStyle = target.textColor || '#17212b';
       ctx.font = target.font || '12px system-ui, sans-serif';
       ctx.textBaseline = 'top';
@@ -435,7 +465,7 @@
     game.combo = now - game.lastHitAt < 1400 ? game.combo + 1 : 1;
     game.lastHitAt = now;
     game.score += LIVIACore.points(game.combo);
-    if (target.type === 'IMAGE') {
+    if (target.type !== 'TEXT') {
       game.glassShards.push(...LIVIACore.createGlassShards(target.bounds, 32).map((shard) => ({
         ...shard,
         bounds: target.bounds,
@@ -451,7 +481,7 @@
     }
     game.particles.push(...LIVIACore.createFragments(target.bounds, 10));
     if (game.particles.length > 160) game.particles.splice(0, game.particles.length - 160);
-    game.smoke.push(...LIVIACore.createSmoke(target.bounds, target.type === 'IMAGE' ? 14 : 9));
+    game.smoke.push(...LIVIACore.createSmoke(target.bounds, target.type !== 'TEXT' ? 14 : 9));
     if (game.smoke.length > 96) game.smoke.splice(0, game.smoke.length - 96);
     game.tracers.push({
       x1: target.bounds.x + target.bounds.w / 2,
@@ -728,14 +758,7 @@
     ctx.closePath();
     ctx.save();
     ctx.clip();
-    if (shard.imageElement?.complete && shard.imageElement.naturalWidth > 0) {
-      try {
-        ctx.drawImage(shard.imageElement, shard.bounds.x, shard.bounds.y, shard.bounds.w, shard.bounds.h);
-      } catch {
-        ctx.fillStyle = 'rgba(145, 226, 255, 0.5)';
-        ctx.fill();
-      }
-    } else {
+    if (!drawMediaSurface(shard.imageElement, shard.bounds)) {
       ctx.fillStyle = 'rgba(145, 226, 255, 0.5)';
       ctx.fill();
     }
@@ -943,6 +966,32 @@
     const maxTargets = 2400;
     const ignored = 'form, input, textarea, select, button, [contenteditable="true"], [role="textbox"], [aria-hidden="true"], [data-livia-ignore], script, style, noscript, svg, #livia-companion';
 
+    function collectOpenRoots(root) {
+      const roots = [root];
+      const visited = new Set(roots);
+      for (let index = 0; index < roots.length && roots.length < 128; index += 1) {
+        for (const element of roots[index].querySelectorAll('*')) {
+          if (element.shadowRoot && !visited.has(element.shadowRoot)) {
+            roots.push(element.shadowRoot);
+            visited.add(element.shadowRoot);
+            if (roots.length >= 128) break;
+          }
+        }
+      }
+      return roots;
+    }
+
+    function isIgnored(element) {
+      let current = element;
+      while (current) {
+        if (current.matches?.(ignored)) return true;
+        current = current.parentElement || current.getRootNode?.().host || null;
+      }
+      return false;
+    }
+
+    const roots = collectOpenRoots(document.body);
+
     function getCoverColor(element) {
       let current = element;
       while (current) {
@@ -950,41 +999,48 @@
         if (color && color !== 'transparent') {
           if (!color.startsWith('rgba(') || Number(color.slice(5, -1).split(',')[3]) >= 0.95) return color;
         }
-        current = current.parentElement;
+        current = current.parentElement || current.getRootNode?.().host || null;
       }
       return '#fff';
     }
 
     function visibleStyle(element) {
-      if (!(element instanceof HTMLElement) || isSensitive(element) || element.closest(ignored)) return null;
+      if (!(element instanceof HTMLElement) || isSensitive(element) || isIgnored(element)) return null;
       const style = window.getComputedStyle(element);
       if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05) return null;
       return style;
     }
 
-    const images = document.body.querySelectorAll('img');
-    for (const image of images) {
-      if (items.length >= 180) break;
-      if (!image.complete || !image.naturalWidth || !visibleStyle(image)) continue;
-      const rect = image.getBoundingClientRect();
-      if (rect.width < 24 || rect.height < 18 || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) continue;
-      const style = window.getComputedStyle(image);
+    const visualElements = roots.flatMap((root) => [...root.querySelectorAll('img, video, canvas, iframe')]);
+    for (const element of visualElements) {
+      if (items.length >= 320 || !visibleStyle(element)) continue;
+      const rect = element.getBoundingClientRect();
+      const isFrame = element instanceof HTMLIFrameElement;
+      const minimumSize = isFrame ? 64 : 28;
+      if (rect.width < minimumSize || rect.height < minimumSize || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) continue;
+      if (!isFrame && !(element instanceof HTMLVideoElement) && !mediaSize(element)) continue;
       const x = Math.max(0, rect.left);
       const y = Math.max(0, rect.top);
+      const label = element.getAttribute('title') || element.getAttribute('aria-label') || (element instanceof HTMLVideoElement ? 'VIDEO TARGET' : element instanceof HTMLCanvasElement ? 'CANVAS TARGET' : isFrame ? 'EMBEDDED PLAYER' : 'IMAGE TARGET');
       items.push({
-        id: image.id || `image-${items.length}`,
-        type: 'IMAGE',
-        text: image.getAttribute('alt') || image.getAttribute('title') || 'IMAGE TARGET',
-        coverColor: getCoverColor(image),
-        imageElement: image,
+        id: element.id || `visual-${items.length}`,
+        type: isFrame ? 'FRAME' : 'IMAGE',
+        text: element instanceof HTMLImageElement ? element.getAttribute('alt') || label : label,
+        coverColor: getCoverColor(element),
+        imageElement: isFrame ? null : element,
         bounds: { x, y, w: Math.min(rect.right, window.innerWidth) - x, h: Math.min(rect.bottom, window.innerHeight) - y }
       });
     }
 
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    let textNode;
+    const textNodes = [];
+    for (const root of roots) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let textNode;
+      while ((textNode = walker.nextNode())) textNodes.push(textNode);
+    }
     let scannedWords = 0;
-    while (items.length < maxTargets && (textNode = walker.nextNode())) {
+    for (const textNode of textNodes) {
+      if (items.length >= maxTargets || scannedWords >= 18_000) break;
       const element = textNode.parentElement;
       const style = element && visibleStyle(element);
       const value = textNode.nodeValue || '';
