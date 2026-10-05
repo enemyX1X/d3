@@ -984,13 +984,19 @@
     function isIgnored(element) {
       let current = element;
       while (current) {
-        if (current.matches?.(ignored)) return true;
+        if (current.matches?.(ignored) || current.matches?.('[hidden], [inert], [aria-hidden="true"]')) return true;
         current = current.parentElement || current.getRootNode?.().host || null;
       }
       return false;
     }
 
-    const roots = collectOpenRoots(document.body);
+    const roots = collectOpenRoots(document.body || document.documentElement || document);
+
+    function isNonInteractiveSurface(element) {
+      if (!(element instanceof Element)) return false;
+      if (element.closest?.('button, a, input, textarea, select, summary, [role="button"], [role="link"], [role="textbox"]')) return true;
+      return Boolean(element.closest?.('[hidden], [inert], [aria-hidden="true"], [data-livia-ignore]'));
+    }
 
     function getCoverColor(element) {
       let current = element;
@@ -1005,9 +1011,12 @@
     }
 
     function visibleStyle(element) {
-      if (!(element instanceof HTMLElement) || isSensitive(element) || isIgnored(element)) return null;
+      if (!(element instanceof Element) || isSensitive(element) || isIgnored(element) || isNonInteractiveSurface(element)) return null;
+      if (element.hidden || element.closest?.('[hidden], [inert], [aria-hidden="true"]')) return null;
       const style = window.getComputedStyle(element);
       if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05) return null;
+      const rect = element.getBoundingClientRect();
+      if (!rect.width || !rect.height || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) return null;
       return style;
     }
 
@@ -1042,15 +1051,17 @@
       });
     }
 
-    const visualSelector = 'img, video, canvas, iframe';
+    const visualSelector = 'img, video, canvas, iframe, embed, object, picture, svg, [data-video-id], [data-thumbnail-id], [data-media], [data-testid*="video"], [data-testid*="thumbnail"], [data-testid*="media"], [class*="video"], [class*="thumbnail"], [class*="player"], [class*="media"], [class*="poster"], [class*="cover"], [class*="teaser"], [class*="card-image"], [class*="image-card"], [role="img"], [aria-label*="video"], [aria-label*="thumbnail"], [alt], [src]';
     for (const root of roots) {
       for (const element of root.querySelectorAll(visualSelector)) addVisualTarget(element);
     }
+    for (const element of document.querySelectorAll(visualSelector)) addVisualTarget(element);
 
-    const playerHostSelector = '#movie_player, ytd-player, ytd-thumbnail, ytd-video-preview, .html5-video-container, .ytp-cued-thumbnail-overlay, .ytp-iv-video-content';
+    const playerHostSelector = '#movie_player, ytd-player, ytd-thumbnail, ytd-video-preview, ytd-rich-item-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer, ytd-playlist-video-renderer, .html5-video-container, .html5-video-player, .ytp-cued-thumbnail-overlay, .ytp-iv-video-content, .ytp-chrome-bottom, .ytp-player-content, .ytp-thumb-overlay, .ytp-thumbnail-overlay, .yt-core-image, .yt-image, yt-image, [data-youtube-id], [data-ytd-video-id], [class*="ytd-thumbnail"], [class*="youtube-player"], [class*="video-player"], [class*="player-shell"], [class*="video-shell"], [class*="media-shell"], [class*="poster-frame"], [class*="thumbnail-card"], [class*="video-card"], [class*="thumb"]';
     for (const root of roots) {
       for (const element of root.querySelectorAll(playerHostSelector)) addVisualTarget(element, true);
     }
+    for (const element of document.querySelectorAll(playerHostSelector)) addVisualTarget(element, true);
 
     const textNodes = [];
     for (const root of roots) {
