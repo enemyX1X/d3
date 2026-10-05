@@ -44,7 +44,7 @@ npm run build:extension
 2. Enable Developer mode.
 3. Choose **Load unpacked** and select the generated `dist/livia-extension` folder. Do not select the repository root.
 4. Leave `chrome://extensions`, open an ordinary page such as `https://example.com`, open the LIVIA popup, and choose **Enable on this site**. Browser pages like `chrome://extensions` are protected and cannot host the companion.
-5. Choose **Play** to arm visible DOM text lines and images in the viewport; nothing is destroyed until you fire. Aim with the reticle, hold left-click or Space for continuous golden rounds, or right-click / press M for a locally guided missile. Text becomes glyph debris and smoke; image copies break into glass-like shards and smoke. Hit every target to see your clear time and score over a blank LIVIA overlay for 60 seconds. The webpage DOM is never changed.
+5. Choose **Play** to arm visible DOM text lines and images in the viewport; nothing is destroyed until you fire. Move the pointer to guide the robot across text lines, click/hold or press Space for continuous golden rounds, or right-click / press M for a locally guided missile. Text becomes glyph debris and smoke; image copies break into glass-like shards and smoke. Hit every target to see your clear time and score over a blank LIVIA overlay for 60 seconds. The webpage DOM is never changed.
 
 Browser-protected pages (such as browser settings and extension stores) do not allow injection. Site permission can be revoked in the popup or browser extension settings.
 

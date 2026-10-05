@@ -16,6 +16,7 @@
     y: window.innerHeight / 2,
     vx: 0,
     vy: 0,
+    heading: 0,
     form: 'sphere',
     scale: 1,
     color: '#7cf3ff',
@@ -42,7 +43,10 @@
     clearSeconds: 0,
     totalTargets: 0,
     screenFlash: 0,
-    screenShake: 0
+    screenShake: 0,
+    movementGoal: null,
+    navigationTarget: null,
+    nextTraversalJumpAt: 0
   };
 
   const overlay = document.createElement('div');
@@ -52,12 +56,12 @@
   const canvas = document.createElement('canvas');
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
-  canvas.style.cssText = 'width:100%;height:100%;display:block;';
+  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0;';
   overlay.appendChild(canvas);
 
   const characterCanvas = document.createElement('canvas');
-  characterCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;';
-  overlay.insertBefore(characterCanvas, canvas);
+  characterCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;';
+  overlay.appendChild(characterCanvas);
   document.documentElement.appendChild(overlay);
 
   const ctx = canvas.getContext('2d');
@@ -116,22 +120,25 @@
     const previousX = avatar.x;
     const previousY = avatar.y;
     const size = 22 * avatar.scale;
-    if (avatar.mode === 'play') {
-      avatar.x = Math.min(64, window.innerWidth * 0.2);
-      avatar.y = Math.max(64, window.innerHeight - 72);
-    } else {
-      avatar.vx *= 0.82;
-      avatar.vy *= 0.82;
-      avatar.x += (state.pointer.x - avatar.x) * 0.08 + avatar.vx;
-      avatar.y += (state.pointer.y - avatar.y) * 0.08 + avatar.vy;
+    const goal = avatar.mode === 'play' ? game.movementGoal || state.pointer : state.pointer;
+    avatar.vx *= 0.82;
+    avatar.vy *= 0.82;
+    avatar.x += (goal.x - avatar.x) * 0.08 + avatar.vx;
+    avatar.y += (goal.y - avatar.y) * 0.08 + avatar.vy;
+    const travelX = avatar.x - previousX;
+    const travelY = avatar.y - previousY;
+    if (Math.hypot(travelX, travelY) > 0.1) {
+      avatar.heading = Math.atan2(travelX, -travelY);
+    } else if (avatar.mode === 'play' && Math.hypot(state.pointer.x - avatar.x, state.pointer.y - avatar.y) > 5) {
+      avatar.heading = Math.atan2(state.pointer.x - avatar.x, avatar.y - state.pointer.y);
     }
 
     if (character) {
       character.update({
         x: avatar.x,
         y: avatar.y,
-        heading: Math.atan2(state.pointer.x - avatar.x, avatar.y - state.pointer.y),
-        moving: Math.hypot(avatar.x - previousX, avatar.y - previousY) > 0.45,
+        heading: avatar.heading,
+        moving: Math.hypot(travelX, travelY) > 0.45,
         scale: avatar.scale
       });
       if (character.ready) return;
@@ -152,34 +159,6 @@
       case 'sphere':
         ctx.beginPath();
         ctx.arc(0, 0, size, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-        break;
-      case 'cube':
-        ctx.fillRect(-size, -size, size * 2, size * 2);
-        ctx.strokeRect(-size, -size, size * 2, size * 2);
-        break;
-      case 'spaceship':
-        ctx.beginPath();
-        ctx.moveTo(0, -size * 1.3);
-        ctx.lineTo(size * 0.9, size);
-        ctx.lineTo(0, size * 0.7);
-        ctx.lineTo(-size * 0.9, size);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        break;
-      case 'robot':
-        ctx.fillRect(-size * 0.8, -size * 0.8, size * 1.6, size * 1.6);
-        ctx.strokeRect(-size * 0.8, -size * 0.8, size * 1.6, size * 1.6);
-        break;
-      case 'drone':
-        ctx.beginPath();
-        ctx.arc(0, 0, size * 0.8, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-        break;
-      case 'particle':
         for (let i = 0; i < 12; i += 1) {
           const angle = (Math.PI * 2 * i) / 12 + performance.now() / 900;
           const r = size * (0.8 + (i % 4) * 0.2);
@@ -754,6 +733,7 @@
           game.totalTargets = 0;
         }
         if (game.clearUntil && !game.clearPendingAt && now < game.clearUntil) {
+          character?.update({ x: avatar.x, y: avatar.y, heading: 0, moving: false, scale: avatar.scale });
           drawClearScorecard(now);
           frameId = requestAnimationFrame(animate);
           return;
@@ -872,6 +852,25 @@
   function onPointerMove(event) {
     state.pointer.x = event.clientX;
     state.pointer.y = event.clientY;
+    if (avatar.mode !== 'play') return;
+
+    const target = LIVIACore.hitTest(game.targets, state.pointer);
+    if (target) {
+      if (target !== game.navigationTarget) {
+        game.navigationTarget = target;
+        game.movementGoal = {
+          x: target.bounds.x + target.bounds.w / 2,
+          y: target.bounds.y + target.bounds.h / 2
+        };
+        if (performance.now() >= game.nextTraversalJumpAt) {
+          character?.jump();
+          game.nextTraversalJumpAt = performance.now() + 520;
+        }
+      }
+    } else {
+      game.navigationTarget = null;
+      game.movementGoal = { x: state.pointer.x, y: state.pointer.y };
+    }
   }
 
   function onPointerDown(event) {
@@ -964,8 +963,6 @@
         game.clearPendingAt = 0;
         game.clearUntil = 0;
         if (action.on) {
-          avatar.x = Math.min(64, window.innerWidth * 0.2);
-          avatar.y = Math.max(64, window.innerHeight - 72);
           game.score = 0;
           game.combo = 0;
           game.clearSeconds = 0;
@@ -976,6 +973,8 @@
           game.textDebris = [];
           game.glassShards = [];
           refreshTargets();
+          game.navigationTarget = null;
+          game.movementGoal = { x: avatar.x, y: avatar.y };
           if (!game.targets.length) {
             avatar.mode = 'companion';
             game.startedAt = 0;
@@ -986,6 +985,8 @@
           game.totalTargets = game.targets.length;
         } else {
           game.targets = [];
+          game.navigationTarget = null;
+          game.movementGoal = null;
           game.projectiles = [];
           game.particles = [];
           game.textDebris = [];

@@ -24,10 +24,14 @@ globalThis.LIVIACharacter = {
     const actor = new THREE.Group();
     scene.add(actor);
     const cameraState = { x: window.innerWidth * 0.5, y: window.innerHeight * 0.55, heading: 0, moving: false, scale: 1 };
+    const pose = new THREE.Group();
+    actor.add(pose);
     let mixer = null;
     let walkAction = null;
     let jumpAction = null;
     let baseScale = 1;
+    let jumpStartedAt = 0;
+    let lastMotionAt = performance.now();
     let ready = false;
     let active = true;
     let frame = 0;
@@ -58,7 +62,7 @@ globalThis.LIVIACharacter = {
       const center = bounds.getCenter(new THREE.Vector3());
       const dimensions = bounds.getSize(new THREE.Vector3());
       gltf.scene.position.sub(center);
-      actor.add(gltf.scene);
+      pose.add(gltf.scene);
       baseScale = 1.05 / Math.max(dimensions.y, 0.001);
       actor.scale.setScalar(baseScale);
       mixer = new THREE.AnimationMixer(gltf.scene);
@@ -67,6 +71,7 @@ globalThis.LIVIACharacter = {
       if (walkClip) {
         walkAction = mixer.clipAction(walkClip);
         walkAction.play();
+        walkAction.setEffectiveWeight(0);
       }
       if (jumpClip) jumpAction = mixer.clipAction(jumpClip);
       mixer.addEventListener('finished', onFinished);
@@ -85,11 +90,20 @@ globalThis.LIVIACharacter = {
         const horizontalView = verticalView * window.innerWidth / Math.max(1, window.innerHeight);
         const x = (cameraState.x / Math.max(1, window.innerWidth) - 0.5) * horizontalView;
         const y = (0.5 - cameraState.y / Math.max(1, window.innerHeight)) * verticalView;
+        if (cameraState.moving) lastMotionAt = now;
+        const jumping = jumpStartedAt > 0 && now - jumpStartedAt < 1000;
+        const walking = cameraState.moving && !jumping;
+        const sleeping = !walking && !jumping && now - lastMotionAt > 1100;
+        const hop = jumping ? Math.sin(Math.PI * (now - jumpStartedAt) / 1000) * 0.5 : 0;
         actor.position.x += (x - actor.position.x) * Math.min(1, delta * 12);
-        actor.position.y += (y - actor.position.y) * Math.min(1, delta * 12);
-        actor.rotation.y += (cameraState.heading * 0.28 - actor.rotation.y) * Math.min(1, delta * 6);
+        actor.position.y += (y + hop + (sleeping ? Math.sin(now * 0.002) * 0.025 : 0) - actor.position.y) * Math.min(1, delta * 12);
+        const headingDelta = Math.atan2(Math.sin(cameraState.heading - actor.rotation.y), Math.cos(cameraState.heading - actor.rotation.y));
+        actor.rotation.y += headingDelta * Math.min(1, delta * 8);
+        const sleepTilt = sleeping ? -Math.PI / 2 : 0;
+        pose.rotation.z += (sleepTilt - pose.rotation.z) * Math.min(1, delta * 3.5);
         actor.scale.setScalar(baseScale * cameraState.scale);
-        if (walkAction?.isRunning()) walkAction.timeScale = cameraState.moving ? 1 : 0.16;
+        walkAction?.setEffectiveWeight(walking ? 1 : 0);
+        if (walkAction?.isRunning()) walkAction.timeScale = 1;
         mixer?.update(delta);
       }
       renderer.render(scene, camera);
@@ -107,6 +121,8 @@ globalThis.LIVIACharacter = {
 
     function jump() {
       if (!jumpAction || !walkAction) return;
+      jumpStartedAt = performance.now();
+      lastMotionAt = jumpStartedAt;
       jumpAction.reset().setLoop(THREE.LoopOnce, 1);
       jumpAction.clampWhenFinished = true;
       jumpAction.fadeIn(0.12).play();
