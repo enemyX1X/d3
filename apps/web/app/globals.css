@@ -475,6 +475,7 @@ main {
 }
 
 .arena-stage {
+  position: relative;
   min-height: 560px;
   border: 1px solid rgba(124, 243, 255, 0.26);
   border-radius: 20px;
@@ -486,6 +487,31 @@ main {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.demo-game-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+}
+
+.demo-game-canvas,
+.demo-robot-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.demo-game-canvas {
+  z-index: 1;
+}
+
+.demo-robot-canvas {
+  z-index: 2;
+  pointer-events: none;
 }
 
 .demo-panel {
@@ -677,6 +703,10 @@ pre {
   .demo-actions > *,
   .demo-controls > * {
     flex: 1 1 100%;
+  }
+
+  .arena-stage {
+    min-height: 64vh;
   }
 
   .score-grid {

@@ -1011,14 +1011,24 @@
       return style;
     }
 
-    const visualElements = roots.flatMap((root) => [...root.querySelectorAll('img, video, canvas, iframe')]);
-    for (const element of visualElements) {
-      if (items.length >= 320 || !visibleStyle(element)) continue;
+    function addVisualTarget(element, fallbackFrame = false) {
+      if (items.length >= 320 || !visibleStyle(element)) return;
       const rect = element.getBoundingClientRect();
-      const isFrame = element instanceof HTMLIFrameElement;
+      const isFrame = fallbackFrame || element instanceof HTMLIFrameElement;
       const minimumSize = isFrame ? 64 : 28;
-      if (rect.width < minimumSize || rect.height < minimumSize || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) continue;
-      if (!isFrame && !(element instanceof HTMLVideoElement) && !mediaSize(element)) continue;
+      if (rect.width < minimumSize || rect.height < minimumSize || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) return;
+      if (fallbackFrame) {
+        const area = Math.max(1, rect.width * rect.height);
+        const alreadyCovered = items.some((target) => {
+          if (target.type === 'TEXT') return false;
+          const overlapWidth = Math.max(0, Math.min(rect.right, target.bounds.x + target.bounds.w) - Math.max(rect.left, target.bounds.x));
+          const overlapHeight = Math.max(0, Math.min(rect.bottom, target.bounds.y + target.bounds.h) - Math.max(rect.top, target.bounds.y));
+          return overlapWidth * overlapHeight / area > 0.78;
+        });
+        if (alreadyCovered) return;
+      } else if (!isFrame && !(element instanceof HTMLVideoElement) && !mediaSize(element)) {
+        return;
+      }
       const x = Math.max(0, rect.left);
       const y = Math.max(0, rect.top);
       const label = element.getAttribute('title') || element.getAttribute('aria-label') || (element instanceof HTMLVideoElement ? 'VIDEO TARGET' : element instanceof HTMLCanvasElement ? 'CANVAS TARGET' : isFrame ? 'EMBEDDED PLAYER' : 'IMAGE TARGET');
@@ -1030,6 +1040,16 @@
         imageElement: isFrame ? null : element,
         bounds: { x, y, w: Math.min(rect.right, window.innerWidth) - x, h: Math.min(rect.bottom, window.innerHeight) - y }
       });
+    }
+
+    const visualSelector = 'img, video, canvas, iframe';
+    for (const root of roots) {
+      for (const element of root.querySelectorAll(visualSelector)) addVisualTarget(element);
+    }
+
+    const playerHostSelector = '#movie_player, ytd-player, ytd-thumbnail, ytd-video-preview, .html5-video-container, .ytp-cued-thumbnail-overlay, .ytp-iv-video-content';
+    for (const root of roots) {
+      for (const element of root.querySelectorAll(playerHostSelector)) addVisualTarget(element, true);
     }
 
     const textNodes = [];

@@ -1,14 +1,11 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import DemoArena from '@/components/DemoArena';
+import DemoGame, { type DemoStats } from '@/components/DemoGame';
 
-const metrics = [
-  ['Clear time', '7.2s'],
-  ['Targets', '12'],
-  ['Sync', '92%'],
-  ['Threat', 'Low']
-] as const;
+const initialStats: DemoStats = { score: 0, targets: 9, clearTime: '--' };
 
 const capabilityCards = [
   ['Manual fire', 'User-triggered firing only. Nothing happens until you click to play.'],
@@ -17,6 +14,24 @@ const capabilityCards = [
 ] as const;
 
 export default function DemoPage() {
+  const [playing, setPlaying] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [resetKey, setResetKey] = useState(0);
+  const [stats, setStats] = useState(initialStats);
+
+  function resetDemo() {
+    setPlaying(false);
+    setPaused(false);
+    setStats(initialStats);
+    setResetKey((key) => key + 1);
+  }
+
+  function togglePlay() {
+    if (!playing && stats.targets === 0) resetDemo();
+    setPaused(false);
+    setPlaying((value) => !value);
+  }
+
   return (
     <main className="demo-page">
       <header className="demo-header">
@@ -26,11 +41,11 @@ export default function DemoPage() {
         </Link>
 
         <div className="demo-actions">
-          <button type="button" className="btn ghost-btn">
+          <button type="button" className="btn ghost-btn" onClick={resetDemo}>
             Reset arena
           </button>
-          <button type="button" className="btn solid-btn">
-            Play now
+          <button type="button" className="btn solid-btn" onClick={togglePlay}>
+            {playing ? 'Stop demo' : 'Play now'}
           </button>
         </div>
       </header>
@@ -38,31 +53,36 @@ export default function DemoPage() {
       <section className="demo-layout">
         <div className="arena-stage">
           <DemoArena className="demo-arena" />
+          <DemoGame
+            playing={playing}
+            paused={paused}
+            resetKey={resetKey}
+            onStats={setStats}
+            onComplete={() => setPlaying(false)}
+          />
         </div>
 
         <aside className="demo-panel">
           <p className="eyebrow">Demo mode</p>
-          <h1>Manual weapon control.</h1>
+          <h1>Meet the robot. Take control.</h1>
           <p className="demo-copy">
-            Trigger the blast yourself, clear the space, and track the full-screen wipe in real time. Every effect stays
-            in the local browser overlay for a clean, safe experience.
+            Move with WASD, aim with the mouse, hop between targets with Space, and fire only when you click. The robot
+            stays visible in the arena and settles into sleep when idle.
           </p>
 
           <div className="score-grid">
-            {metrics.map(([label, value]) => (
-              <div key={label} className="score-card">
-                <span>{label}</span>
-                <strong>{value}</strong>
-              </div>
-            ))}
+            <div className="score-card"><span>Clear time</span><strong>{stats.clearTime}</strong></div>
+            <div className="score-card"><span>Targets</span><strong>{stats.targets}/9</strong></div>
+            <div className="score-card"><span>Score</span><strong>{stats.score}</strong></div>
+            <div className="score-card"><span>Mode</span><strong>{paused ? 'Paused' : playing ? 'Live' : 'Ready'}</strong></div>
           </div>
 
           <div className="demo-controls">
-            <button type="button" className="btn solid-btn wide-btn">
-              Start sweep
+            <button type="button" className="btn solid-btn wide-btn" onClick={togglePlay}>
+              {playing ? 'Stop demo' : 'Start play'}
             </button>
-            <button type="button" className="btn ghost-btn wide-btn">
-              Pause scene
+            <button type="button" className="btn ghost-btn wide-btn" onClick={() => setPaused((value) => !value)} disabled={!playing}>
+              {paused ? 'Resume' : 'Pause'}
             </button>
           </div>
 

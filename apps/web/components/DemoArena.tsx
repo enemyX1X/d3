@@ -21,7 +21,7 @@ export default function DemoArena({ className }: { className?: string }) {
 
     const buildStars = () => {
       stars.length = 0;
-      const count = Math.max(70, Math.round(width * height / 18));
+      const count = Math.max(48, Math.min(150, Math.round(width * height / 3200)));
       for (let i = 0; i < count; i += 1) {
         stars.push({
           x: Math.random() * width,
