@@ -363,7 +363,7 @@
   function drawTargetMask(target) {
     const bounds = target.bounds;
     ctx.fillStyle = target.coverColor || '#fff';
-    ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
+    ctx.fillRect(bounds.x - 2, bounds.y - 2, bounds.w + 4, bounds.h + 4);
   }
 
   function mediaSize(element) {
@@ -596,10 +596,7 @@
   }
 
   function drawGame(now) {
-    const shakeX = (Math.random() - 0.5) * game.screenShake;
-    const shakeY = (Math.random() - 0.5) * game.screenShake;
     ctx.save();
-    ctx.translate(shakeX, shakeY);
 
     for (const target of game.targets) drawTargetMask(target);
     for (const target of game.targets) drawTarget(target, now);
@@ -1340,11 +1337,14 @@
     game.firing = false;
     game.moveKeys = { up: false, down: false, left: false, right: false };
   });
-  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('resize', () => {
+    resizeCanvas();
+    if (avatar.mode === 'play') refreshTargets();
+  });
   window.addEventListener('scroll', () => {
     if (avatar.mode !== 'play') return;
     window.clearTimeout(scanTimer);
-    scanTimer = window.setTimeout(refreshTargets, 180);
+    scanTimer = window.setTimeout(refreshTargets, 40);
   }, { passive: true });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
