@@ -44,9 +44,11 @@
     totalTargets: 0,
     screenFlash: 0,
     screenShake: 0,
-    movementGoal: null,
-    navigationTarget: null,
-    nextTraversalJumpAt: 0
+    moveKeys: { up: false, down: false, left: false, right: false },
+    jumpFrom: null,
+    jumpTo: null,
+    jumpStartedAt: 0,
+    jumpIndex: -1
   };
 
   const overlay = document.createElement('div');
@@ -66,15 +68,174 @@
 
   const ctx = canvas.getContext('2d');
   const character = self.LIVIACharacter?.create(characterCanvas, chrome.runtime.getURL('assets/box-02_robot.glb'));
+  const assistantWidget = document.createElement('section');
+  assistantWidget.setAttribute('aria-label', 'Ask LIVIA');
+  assistantWidget.style.cssText = 'position:fixed;top:72px;right:16px;width:min(360px,calc(100vw - 28px));max-height:calc(100vh - 96px);overflow:auto;box-sizing:border-box;padding:16px;border:1px solid rgba(124,243,255,.5);border-radius:14px;background:rgba(5,10,18,.84);backdrop-filter:blur(16px);box-shadow:0 14px 48px rgba(0,0,0,.45),0 0 24px rgba(124,243,255,.12);color:#edf6ff;font:13px/1.5 system-ui,sans-serif;pointer-events:auto;display:none;';
+  overlay.appendChild(assistantWidget);
   let frameId = 0;
   let lastFrameAt = 0;
   let scanTimer = 0;
+
+  const assistantHeader = document.createElement('div');
+  assistantHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;';
+  const assistantTitle = document.createElement('strong');
+  assistantTitle.textContent = 'Ask LIVIA';
+  assistantTitle.style.cssText = 'font-size:16px;';
+  const assistantClose = document.createElement('button');
+  assistantClose.type = 'button';
+  assistantClose.textContent = 'Close';
+  assistantClose.style.cssText = 'border:1px solid rgba(124,243,255,.4);border-radius:8px;background:transparent;color:inherit;padding:5px 9px;cursor:pointer;';
+  assistantHeader.append(assistantTitle, assistantClose);
+  const assistantHint = document.createElement('p');
+  assistantHint.textContent = 'Summary and reading stay local. News and translation open Google.';
+  assistantHint.style.cssText = 'margin:0 0 12px;color:#a7bad8;font-size:12px;';
+  const languageSelect = document.createElement('select');
+  languageSelect.setAttribute('aria-label', 'Translation language');
+  languageSelect.style.cssText = 'width:100%;margin:0 0 10px;padding:8px;border:1px solid rgba(124,243,255,.32);border-radius:8px;background:#111a27;color:#edf6ff;';
+  for (const [code, label] of [['en', 'English'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'], ['hi', 'Hindi']]) {
+    const option = document.createElement('option');
+    option.value = code;
+    option.textContent = label;
+    languageSelect.appendChild(option);
+  }
+  const assistantActions = document.createElement('div');
+  assistantActions.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;';
+  const assistantQuestion = document.createElement('input');
+  assistantQuestion.type = 'text';
+  assistantQuestion.maxLength = 180;
+  assistantQuestion.placeholder = 'Ask about this page...';
+  assistantQuestion.setAttribute('aria-label', 'Ask LIVIA about this page');
+  assistantQuestion.style.cssText = 'width:100%;min-height:38px;box-sizing:border-box;margin:10px 0 0;padding:8px 10px;border:1px solid rgba(124,243,255,.32);border-radius:8px;background:#111a27;color:#edf6ff;';
+  const askButton = document.createElement('button');
+  askButton.type = 'button';
+  askButton.textContent = 'Ask';
+  askButton.style.cssText = 'width:100%;min-height:36px;margin-top:7px;border:1px solid rgba(124,243,255,.42);border-radius:8px;background:rgba(124,243,255,.14);color:#edf6ff;cursor:pointer;';
+  const assistantResult = document.createElement('div');
+  assistantResult.setAttribute('aria-live', 'polite');
+  assistantResult.style.cssText = 'margin-top:12px;padding:10px;border:1px solid rgba(124,243,255,.18);border-radius:9px;background:rgba(14,22,34,.72);white-space:pre-wrap;overflow-wrap:anywhere;';
+  assistantWidget.append(assistantHeader, assistantHint, assistantQuestion, askButton, languageSelect, assistantActions, assistantResult);
+
+  function setAssistantResult(message) {
+    assistantResult.replaceChildren();
+    assistantResult.textContent = message;
+  }
+
+  function makeAssistantButton(label, onClick) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.style.cssText = 'min-height:38px;border:1px solid rgba(124,243,255,.28);border-radius:8px;background:rgba(124,243,255,.07);color:#edf6ff;padding:7px 8px;cursor:pointer;';
+    button.addEventListener('click', onClick);
+    assistantActions.appendChild(button);
+    return button;
+  }
+
+  function toggleAssistantWidget(forceOpen) {
+    const open = typeof forceOpen === 'boolean' ? forceOpen : assistantWidget.style.display === 'none';
+    assistantWidget.style.display = open ? 'block' : 'none';
+    if (open) assistantClose.focus({ preventScroll: true });
+  }
+
+  function summarizePage() {
+    const lines = scanVisibleText()
+      .filter((item) => item.type === 'TEXT' && item.text.trim())
+      .map((item) => item.text.trim().replace(/\s+/g, ' '));
+    if (!lines.length) {
+      setAssistantResult('No readable page text is available in the current viewport.');
+      return;
+    }
+    const uniqueLines = [...new Set(lines)].slice(0, 6);
+    setAssistantResult(`Local summary of visible text\n\n${uniqueLines.join('\n')}`);
+  }
+
+  function requestAssistantAction(type, extra = {}) {
+    setAssistantResult('Working...');
+    chrome.runtime.sendMessage({ type, ...extra }, (response) => {
+      const error = chrome.runtime.lastError;
+      if (error || !response?.ok) {
+        setAssistantResult(response?.error || error?.message || 'That action could not be completed.');
+        return;
+      }
+      if (type === 'assistant-capture') {
+        assistantResult.replaceChildren();
+        const preview = document.createElement('img');
+        preview.alt = 'Screenshot of the current page';
+        preview.src = response.dataUrl;
+        preview.style.cssText = 'display:block;width:100%;max-height:340px;object-fit:contain;border-radius:6px;';
+        const download = document.createElement('a');
+        download.href = response.dataUrl;
+        download.download = 'livia-page-screenshot.png';
+        download.textContent = 'Download screenshot';
+        download.style.cssText = 'display:inline-block;margin-top:8px;color:#7cf3ff;';
+        assistantResult.append(preview, download);
+      } else {
+        setAssistantResult(response.message || 'Opened in a new tab.');
+      }
+    });
+  }
+
+  function askAssistant() {
+    const question = assistantQuestion.value.trim().toLowerCase();
+    if (!question) {
+      setAssistantResult('Ask me to summarize, find latest news, translate, read aloud, or take a screenshot.');
+    } else if (/summari[sz]|explain|what is this page|key points/.test(question)) {
+      summarizePage();
+    } else if (/news|latest|recent|updates/.test(question)) {
+      const topic = (document.title || '').replace(/\s*[|–—-]\s*[^|–—-]+$/, '').trim().slice(0, 120);
+      requestAssistantAction('assistant-news', { topic: topic || location.hostname });
+    } else if (/translat|language|convert/.test(question)) {
+      requestAssistantAction('assistant-translate', { language: languageSelect.value });
+    } else if (/read|speak|listen|aloud/.test(question)) {
+      const text = scanVisibleText().filter((item) => item.type === 'TEXT').map((item) => item.text).join('. ').slice(0, 8000);
+      if (!text || !window.speechSynthesis) {
+        setAssistantResult('No readable text or speech synthesis is available.');
+        return;
+      }
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+      setAssistantResult('Reading visible page text aloud.');
+    } else if (/screenshot|capture|screen shot/.test(question)) {
+      requestAssistantAction('assistant-capture');
+    } else {
+      setAssistantResult('I can summarize visible text, search its topic in Google News, open Google Translate, read it aloud, or capture a screenshot.');
+    }
+  }
+
+  makeAssistantButton('Summarize page', summarizePage);
+  makeAssistantButton('Latest news (Google)', () => {
+    const topic = (document.title || '').replace(/\s*[|–—-]\s*[^|–—-]+$/, '').trim().slice(0, 120);
+    requestAssistantAction('assistant-news', { topic: topic || location.hostname });
+  });
+  makeAssistantButton('Translate (Google)', () => requestAssistantAction('assistant-translate', { language: languageSelect.value }));
+  makeAssistantButton('Read aloud', () => {
+    const text = scanVisibleText().filter((item) => item.type === 'TEXT').map((item) => item.text).join('. ').slice(0, 8000);
+    if (!text || !window.speechSynthesis) {
+      setAssistantResult('No readable text or speech synthesis is available.');
+      return;
+    }
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    setAssistantResult('Reading visible page text aloud.');
+  });
+  makeAssistantButton('Stop reading', () => {
+    window.speechSynthesis?.cancel();
+    setAssistantResult('Reading stopped.');
+  });
+  makeAssistantButton('Screenshot', () => requestAssistantAction('assistant-capture'));
+  assistantClose.addEventListener('click', () => toggleAssistantWidget(false));
+  askButton.addEventListener('click', askAssistant);
+  assistantQuestion.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') askAssistant();
+  });
 
   function applySettings(settings) {
     state.paused = Boolean(settings.paused);
     state.disabledSites = Array.isArray(settings.disabledSites) ? settings.disabledSites : [];
     state.analysisEnabled = settings.analysisEnabled !== false;
-    if (state.paused || state.disabledSites.includes(location.hostname)) game.firing = false;
+    if (state.paused || state.disabledSites.includes(location.hostname)) {
+      game.firing = false;
+      game.moveKeys = { up: false, down: false, left: false, right: false };
+    }
     if (!state.analysisEnabled && avatar.mode === 'play') {
       avatar.mode = 'companion';
       game.targets = [];
@@ -115,30 +276,53 @@
     ctx?.setTransform(ratio, 0, 0, ratio, 0, 0);
   }
 
-  function drawAvatar() {
+  function drawAvatar(delta = 0) {
     if (!ctx) return;
     const previousX = avatar.x;
     const previousY = avatar.y;
     const size = 22 * avatar.scale;
-    const goal = avatar.mode === 'play' ? game.movementGoal || state.pointer : state.pointer;
-    avatar.vx *= 0.82;
-    avatar.vy *= 0.82;
-    avatar.x += (goal.x - avatar.x) * 0.08 + avatar.vx;
-    avatar.y += (goal.y - avatar.y) * 0.08 + avatar.vy;
+    let moving = false;
+    if (avatar.mode === 'play') {
+      if (game.jumpFrom && game.jumpTo) {
+        const progress = Math.min(1, Math.max(0, (performance.now() - game.jumpStartedAt) / 1000));
+        const eased = progress * progress * (3 - 2 * progress);
+        avatar.x = game.jumpFrom.x + (game.jumpTo.x - game.jumpFrom.x) * eased;
+        avatar.y = game.jumpFrom.y + (game.jumpTo.y - game.jumpFrom.y) * eased;
+        moving = progress < 1;
+        if (progress >= 1) {
+          game.jumpFrom = null;
+          game.jumpTo = null;
+          game.jumpStartedAt = 0;
+        }
+      } else {
+        const horizontal = Number(game.moveKeys.right) - Number(game.moveKeys.left);
+        const vertical = Number(game.moveKeys.down) - Number(game.moveKeys.up);
+        const magnitude = Math.hypot(horizontal, vertical) || 1;
+        const moveX = horizontal / magnitude;
+        const moveY = vertical / magnitude;
+        avatar.x = Math.max(28, Math.min(window.innerWidth - 28, avatar.x + moveX * 360 * delta));
+        avatar.y = Math.max(28, Math.min(window.innerHeight - 28, avatar.y + moveY * 360 * delta));
+        moving = horizontal !== 0 || vertical !== 0;
+      }
+      if (Math.hypot(state.pointer.x - avatar.x, state.pointer.y - avatar.y) > 5) {
+        avatar.heading = Math.atan2(state.pointer.x - avatar.x, avatar.y - state.pointer.y);
+      }
+    } else {
+      avatar.vx *= 0.82;
+      avatar.vy *= 0.82;
+      avatar.x += (state.pointer.x - avatar.x) * 0.08 + avatar.vx;
+      avatar.y += (state.pointer.y - avatar.y) * 0.08 + avatar.vy;
+    }
     const travelX = avatar.x - previousX;
     const travelY = avatar.y - previousY;
-    if (Math.hypot(travelX, travelY) > 0.1) {
-      avatar.heading = Math.atan2(travelX, -travelY);
-    } else if (avatar.mode === 'play' && Math.hypot(state.pointer.x - avatar.x, state.pointer.y - avatar.y) > 5) {
-      avatar.heading = Math.atan2(state.pointer.x - avatar.x, avatar.y - state.pointer.y);
-    }
+    moving ||= Math.hypot(travelX, travelY) > 0.45;
 
     if (character) {
       character.update({
         x: avatar.x,
         y: avatar.y,
         heading: avatar.heading,
-        moving: Math.hypot(travelX, travelY) > 0.45,
+        moving,
         scale: avatar.scale
       });
       if (character.ready) return;
@@ -459,7 +643,10 @@
     ctx.font = '11px system-ui, sans-serif';
     ctx.fillStyle = '#d7e7f2';
     const remainingTargets = game.targets.reduce((remaining, target) => remaining + Number(!target.destroyed), 0);
-    ctx.fillText(`TARGETS  ${remainingTargets}/${game.totalTargets}     LMB / SPACE  FIRE     RMB / M  MISSILE`, 16, 34);
+    const controlsHint = window.innerWidth < 620
+      ? 'WASD MOVE  SPACE HOP  MOUSE AIM/FIRE  Q ASSIST'
+      : 'WASD MOVE  SPACE HOP  MOUSE AIM  LMB FIRE  RMB/M MISSILE  Q ASSIST';
+    ctx.fillText(`TARGETS ${remainingTargets}/${game.totalTargets}  ${controlsHint}`, 16, 34);
 
     if (game.screenFlash > 0.02) {
       ctx.fillStyle = `rgba(255, 250, 220, ${Math.min(0.18, game.screenFlash)})`;
@@ -739,10 +926,10 @@
           return;
         }
         updateGame(delta, now);
-        drawAvatar();
+        drawAvatar(delta);
         drawGame(now);
       } else {
-        drawAvatar();
+        drawAvatar(delta);
       }
     } else {
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
@@ -852,28 +1039,41 @@
   function onPointerMove(event) {
     state.pointer.x = event.clientX;
     state.pointer.y = event.clientY;
-    if (avatar.mode !== 'play') return;
+  }
 
-    const target = LIVIACore.hitTest(game.targets, state.pointer);
-    if (target) {
-      if (target !== game.navigationTarget) {
-        game.navigationTarget = target;
-        game.movementGoal = {
-          x: target.bounds.x + target.bounds.w / 2,
-          y: target.bounds.y + target.bounds.h / 2
-        };
-        if (performance.now() >= game.nextTraversalJumpAt) {
-          character?.jump();
-          game.nextTraversalJumpAt = performance.now() + 520;
-        }
-      }
-    } else {
-      game.navigationTarget = null;
-      game.movementGoal = { x: state.pointer.x, y: state.pointer.y };
+  function jumpToNextTarget() {
+    if (!game.targets.length) {
+      character?.jump();
+      return;
     }
+    for (let offset = 1; offset <= game.targets.length; offset += 1) {
+      const index = (game.jumpIndex + offset) % game.targets.length;
+      const target = game.targets[index];
+      if (target.destroyed) continue;
+      game.jumpIndex = index;
+      const centerX = target.bounds.x + target.bounds.w / 2;
+      const centerY = target.bounds.y + target.bounds.h / 2;
+      const directionX = centerX - avatar.x;
+      const directionY = centerY - avatar.y;
+      const distance = Math.hypot(directionX, directionY) || 1;
+      const unitX = directionX / distance;
+      const unitY = directionY / distance;
+      const edgeDistance = Math.abs(unitX) * target.bounds.w / 2 + Math.abs(unitY) * target.bounds.h / 2;
+      const landingDistance = edgeDistance + 68;
+      game.jumpFrom = { x: avatar.x, y: avatar.y };
+      game.jumpTo = {
+        x: Math.max(32, Math.min(window.innerWidth - 32, centerX - unitX * landingDistance)),
+        y: Math.max(32, Math.min(window.innerHeight - 32, centerY - unitY * landingDistance))
+      };
+      game.jumpStartedAt = performance.now();
+      character?.jump();
+      return;
+    }
+    character?.jump();
   }
 
   function onPointerDown(event) {
+    if (assistantWidget.contains(event.target)) return;
     if (avatar.mode !== 'play' || !shouldOperate()) return;
     if (event.button !== 0 && event.button !== 2) return;
     event.preventDefault();
@@ -882,7 +1082,6 @@
     state.pointer.y = event.clientY;
     if (event.button === 0) {
       game.firing = true;
-      character?.jump();
       fireMachineGun();
     } else if (event.button === 2) {
       fireMissile();
@@ -890,6 +1089,7 @@
   }
 
   function onPointerUp(event) {
+    if (assistantWidget.contains(event.target)) return;
     if (avatar.mode === 'play' && shouldOperate() && (event.button === 0 || event.button === 2)) {
       event.preventDefault();
       event.stopPropagation();
@@ -898,6 +1098,7 @@
   }
 
   function onContextMenu(event) {
+    if (assistantWidget.contains(event.target)) return;
     if (avatar.mode === 'play' && shouldOperate()) {
       event.preventDefault();
       event.stopPropagation();
@@ -905,15 +1106,27 @@
   }
 
   function onKeyDown(event) {
-    if (avatar.mode !== 'play' || !shouldOperate() || event.repeat) return;
     const target = event.target;
     if (target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+    if (assistantWidget.contains(target)) return;
+    if (event.code === 'KeyQ' && !event.repeat) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleAssistantWidget();
+      return;
+    }
+    if (avatar.mode !== 'play' || !shouldOperate() || event.repeat) return;
+    const movementKeys = { KeyW: 'up', KeyS: 'down', KeyA: 'left', KeyD: 'right' };
+    if (movementKeys[event.code]) {
+      event.preventDefault();
+      event.stopPropagation();
+      game.moveKeys[movementKeys[event.code]] = true;
+      return;
+    }
     if (event.code === 'Space') {
       event.preventDefault();
       event.stopPropagation();
-      game.firing = true;
-      character?.jump();
-      fireMachineGun();
+      jumpToNextTarget();
     } else if (event.code === 'KeyM') {
       event.preventDefault();
       event.stopPropagation();
@@ -922,7 +1135,8 @@
   }
 
   function onKeyUp(event) {
-    if (event.code === 'Space') game.firing = false;
+    const movementKeys = { KeyW: 'up', KeyS: 'down', KeyA: 'left', KeyD: 'right' };
+    if (movementKeys[event.code]) game.moveKeys[movementKeys[event.code]] = false;
   }
 
   function handleMessage(request, sender, sendResponse) {
@@ -966,6 +1180,10 @@
           game.score = 0;
           game.combo = 0;
           game.clearSeconds = 0;
+          game.moveKeys = { up: false, down: false, left: false, right: false };
+          game.jumpFrom = null;
+          game.jumpTo = null;
+          game.jumpIndex = -1;
           game.startedAt = performance.now();
           game.projectiles = [];
           game.particles = [];
@@ -973,8 +1191,9 @@
           game.textDebris = [];
           game.glassShards = [];
           refreshTargets();
-          game.navigationTarget = null;
-          game.movementGoal = { x: avatar.x, y: avatar.y };
+          game.jumpIndex = -1;
+          game.jumpFrom = null;
+          game.jumpTo = null;
           if (!game.targets.length) {
             avatar.mode = 'companion';
             game.startedAt = 0;
@@ -985,8 +1204,9 @@
           game.totalTargets = game.targets.length;
         } else {
           game.targets = [];
-          game.navigationTarget = null;
-          game.movementGoal = null;
+          game.jumpFrom = null;
+          game.jumpTo = null;
+          game.moveKeys = { up: false, down: false, left: false, right: false };
           game.projectiles = [];
           game.particles = [];
           game.textDebris = [];
@@ -1025,7 +1245,10 @@
   document.addEventListener('contextmenu', onContextMenu, true);
   document.addEventListener('keydown', onKeyDown);
   document.addEventListener('keyup', onKeyUp);
-  window.addEventListener('blur', () => { game.firing = false; });
+  window.addEventListener('blur', () => {
+    game.firing = false;
+    game.moveKeys = { up: false, down: false, left: false, right: false };
+  });
   window.addEventListener('resize', resizeCanvas);
   window.addEventListener('scroll', () => {
     if (avatar.mode !== 'play') return;
