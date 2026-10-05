@@ -994,7 +994,7 @@
 
     function isNonInteractiveSurface(element) {
       if (!(element instanceof Element)) return false;
-      if (element.closest?.('button, a, input, textarea, select, summary, [role="button"], [role="link"], [role="textbox"]')) return true;
+      if (element.closest?.('button, input, textarea, select, summary, [role="button"], [role="textbox"]')) return true;
       return Boolean(element.closest?.('[hidden], [inert], [aria-hidden="true"], [data-livia-ignore]'));
     }
 
