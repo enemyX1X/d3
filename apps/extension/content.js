@@ -1027,13 +1027,8 @@
       const minimumSize = isFrame ? 64 : 28;
       if (rect.width < minimumSize || rect.height < minimumSize || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) return;
 
-      const isPrimaryVideoViewport = (
-        element.id === 'movie_player' ||
-        element.matches?.('#movie_player, .html5-video-container, .html5-video-player, .ytp-player-content, .ytp-chrome-bottom, .ytp-iv-video-content, ytd-player, .ytp-cued-thumbnail-overlay') ||
-        (!!element.closest?.('#movie_player, ytd-player, .html5-video-container, .html5-video-player, .ytp-player-content, .ytp-iv-video-content'))
-      );
-      const isLargeViewport = rect.width > window.innerWidth * 0.6 || rect.height > window.innerHeight * 0.5;
-      if (isPrimaryVideoViewport && isLargeViewport) return;
+      const isPrimaryVideoViewport = LIVIACore.isPrimaryViewportCandidate(element, rect, window.innerWidth, window.innerHeight);
+      if (isPrimaryVideoViewport) return;
 
       if (fallbackFrame) {
         const area = Math.max(1, rect.width * rect.height);

@@ -69,3 +69,12 @@ test('smoke puffs stay capped and have finite drifting motion', () => {
   assert.equal(smoke.length, 24);
   assert.ok(smoke.every((puff) => Number.isFinite(puff.x + puff.y + puff.vx + puff.vy + puff.size)));
 });
+
+test('large main video viewport is excluded while smaller thumbnails remain targetable', () => {
+  const viewport = { id: 'movie_player', className: 'html5-video-player', tagName: 'DIV' };
+  const smallTile = { id: 'thumb-1', className: 'ytd-thumbnail', tagName: 'DIV' };
+
+  assert.equal(core.isPrimaryViewportCandidate(viewport, { x: 0, y: 0, w: 1400, h: 900 }, 1600, 900), true);
+  assert.equal(core.isPrimaryViewportCandidate(smallTile, { x: 0, y: 0, w: 220, h: 140 }, 1600, 900), false);
+  assert.equal(core.isPrimaryViewportCandidate({ id: 'other', className: 'card', tagName: 'DIV' }, { x: 0, y: 0, w: 260, h: 160 }, 1600, 900), false);
+});

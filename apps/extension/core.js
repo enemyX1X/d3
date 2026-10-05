@@ -67,6 +67,27 @@
     return false;
   }
 
+  function isPrimaryViewportCandidate(element, rect, viewportWidth, viewportHeight) {
+    if (!element || !rect || !viewportWidth || !viewportHeight) return false;
+    const rectWidth = Number(rect.width ?? rect.w ?? 0);
+    const rectHeight = Number(rect.height ?? rect.h ?? 0);
+    const tag = String(element.tagName || element.tag || '').toUpperCase();
+    const combined = `${element.id || ''} ${element.className || ''} ${tag}`.toLowerCase();
+    const primaryHints = [
+      'movie_player',
+      'html5-video-player',
+      'html5-video-container',
+      'ytp-player-content',
+      'ytp-iv-video-content',
+      'ytd-player',
+      'video-player',
+      'player-container'
+    ];
+    const largeEnough = rectWidth >= viewportWidth * 0.55 && rectHeight >= viewportHeight * 0.4;
+    const looksLikePrimaryPlayer = primaryHints.some((needle) => combined.includes(needle));
+    return looksLikePrimaryPlayer && largeEnough;
+  }
+
   function aim(from, to, speed, fallback = { x: 0, y: -1 }) {
     let dx = to.x - from.x;
     let dy = to.y - from.y;
@@ -236,7 +257,7 @@
     }));
   }
 
-  const api = { FORMS, parse, valid, isSensitive, aim, rebuildProgress, points, planSceneClear, hitTest, hitTestSegment, createFragments, createTextDebris, createGlassShards, createSmoke };
+  const api = { FORMS, parse, valid, isSensitive, isPrimaryViewportCandidate, aim, rebuildProgress, points, planSceneClear, hitTest, hitTestSegment, createFragments, createTextDebris, createGlassShards, createSmoke };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {
