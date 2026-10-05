@@ -18,15 +18,24 @@
       button { width: 100%; margin: 6px 0; padding: 8px; background: #121d2c; color: #e9f1ff; border: 1px solid #23364a; border-radius: 8px; cursor: pointer; }
       button:hover { border-color: #7cf3ff; }
       input { width: 100%; box-sizing: border-box; margin: 8px 0; padding: 8px; border-radius: 8px; border: 1px solid #23364a; background: #0d1723; color: #e9f1ff; }
+      select, textarea { width: 100%; box-sizing: border-box; margin: 8px 0; padding: 8px; border-radius: 8px; border: 1px solid #23364a; background: #0d1723; color: #e9f1ff; font: inherit; }
+      textarea { min-height: 64px; resize: vertical; }
+      .note input[type="checkbox"] { width: auto; vertical-align: middle; margin-right: 6px; }
       .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
       .message { min-height: 18px; color: #ffca7a; font-size: 11px; margin-top: 8px; }
       .note { margin: 0 0 10px; color: #92a8c5; font-size: 11px; }
+      .scene-report { display: none; max-height: 150px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; padding: 8px; border: 1px solid #23364a; color: #b8cce2; font: 11px/1.5 ui-monospace, monospace; }
+      .scene-report[aria-hidden="false"] { display: block; }
+      .memory-report { display: none; max-height: 190px; overflow: auto; margin: 8px 0; padding: 8px; border: 1px solid #23364a; color: #b8cce2; font-size: 11px; }
+      .memory-report[aria-hidden="false"] { display: block; }
+      details { margin: 10px 0; border: 1px solid #23364a; padding: 8px; }
+      summary { cursor: pointer; color: #7cf3ff; font-weight: 600; }
     </style>
   </head>
   <body>
     <h1>LIVIA</h1>
     <div class="status">○ SITE ACCESS OFF</div>
-    <p class="note">LIVIA only reads visible text on sites you enable. Page analysis stays on this device.</p>
+    <p class="note">LIVIA reads enabled pages locally. Page memory is saved only when you ask.</p>
     <p class="note">Play arms visible text lines and images; nothing is destroyed until you fire. Hold left click or Space for golden rounds; right click or M launches a missile. Sound is local.</p>
     <p class="note">Hit every target to see your clear time and score. The LIVIA overlay then blanks for 60 seconds; the webpage itself is unchanged.</p>
     <div class="grid">
@@ -35,12 +44,49 @@
       <button data-action="companion">Companion</button>
       <button data-action="rebuild">Rebuild</button>
     </div>
+    <button id="inspect">Inspect visible scene</button>
+    <pre id="scene-report" class="scene-report" aria-live="polite" aria-hidden="true"></pre>
+    <input id="find-query" placeholder="Find: largest image, main button" maxlength="120" aria-label="Find visible page element" />
+    <button id="find-element">Find visible element</button>
+    <pre id="find-report" class="scene-report" aria-live="polite" aria-hidden="true"></pre>
+    <div class="grid">
+      <button id="scroll-found" disabled>Scroll to match</button>
+      <button id="click-found" disabled>Activate selected</button>
+    </div>
+    <label class="note"><input id="click-confirm" type="checkbox" /> Confirm activating the top match</label>
+    <button id="remember">Remember this page</button>
+    <input id="memory-query" placeholder="Search saved pages" maxlength="160" aria-label="Search saved pages" />
+    <button id="recall">Search local memory</button>
+    <pre id="memory-report" class="memory-report" aria-live="polite" aria-hidden="true"></pre>
+    <details>
+      <summary>Local AI (Ollama)</summary>
+      <p class="note">Prompts go to your local model. Page context is sent only when selected below.</p>
+      <input id="agent-token" type="password" autocomplete="off" placeholder="Local agent token (32+ characters)" aria-label="Local agent token" />
+      <button id="agent-connect">Connect local model</button>
+      <select id="agent-task" aria-label="Local model task">
+        <option value="fast">Fast</option>
+        <option value="balanced">Balanced</option>
+        <option value="smart">Smart</option>
+      </select>
+      <label class="note"><input id="agent-page-context" type="checkbox" /> Include visible page context for this prompt</label>
+      <textarea id="agent-prompt" maxlength="4000" placeholder="Ask your local model" aria-label="Prompt for local model"></textarea>
+      <button id="agent-ask" disabled>Ask local model</button>
+      <pre id="agent-response" class="memory-report" aria-live="polite" aria-hidden="true"></pre>
+      <button id="agent-voice" disabled>Start local voice input</button>
+      <button id="agent-speak" disabled>Speak latest response</button>
+      <p class="note">Screenshot analysis is sent only after you click and only to the local agent.</p>
+      <input id="vision-question" maxlength="500" value="Describe the visible layout and identify its main controls." aria-label="Question about screenshot" />
+      <button id="agent-vision" disabled>Analyze screenshot locally</button>
+      <pre id="vision-response" class="memory-report" aria-live="polite" aria-hidden="true"></pre>
+    </details>
     <input id="command" placeholder='Say: "become a spaceship"' maxlength="200" />
     <button id="pause">Pause companion</button>
     <button id="site">Disable on this site</button>
     <button id="analysis">Disable page analysis</button>
     <button id="delete">Delete local data</button>
     <div class="message" id="message"></div>
+    <script src="core.js"></script>
+    <script src="memory.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

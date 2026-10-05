@@ -75,6 +75,8 @@
   let frameId = 0;
   let lastFrameAt = 0;
   let scanTimer = 0;
+  let sceneGeneration = 0;
+  const sceneElementById = new Map();
 
   const assistantHeader = document.createElement('div');
   assistantHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;';
@@ -912,6 +914,251 @@
     }
   }
 
+  function buildPageScene(maxNodes = 250) {
+    sceneGeneration += 1;
+    sceneElementById.clear();
+    const roots = [document.body || document.documentElement];
+    const visitedRoots = new Set(roots);
+    for (let rootIndex = 0; rootIndex < roots.length && roots.length < 64; rootIndex += 1) {
+      for (const element of roots[rootIndex].querySelectorAll('*')) {
+        if (element.shadowRoot && !visitedRoots.has(element.shadowRoot)) {
+          roots.push(element.shadowRoot);
+          visitedRoots.add(element.shadowRoot);
+          if (roots.length >= 64) break;
+        }
+      }
+    }
+
+    const nodes = [];
+    const ids = new WeakMap();
+    const pageId = 'page';
+    const pageRect = { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
+    nodes.push({ id: pageId, type: 'PAGE', parentId: null, children: [], text: document.title, bounds: pageRect, visible: true, source: 'dom', confidence: 1 });
+    ids.set(document.body || document.documentElement, pageId);
+
+    function classify(element, role) {
+      const tag = element.tagName.toLowerCase();
+      if (role === 'dialog' || tag === 'dialog') return 'DIALOG';
+      if (role === 'menu' || tag === 'menu') return 'MENU';
+      if (tag === 'nav' || role === 'navigation') return 'NAVIGATION';
+      if (tag === 'table' || role === 'table' || role === 'grid') return 'TABLE';
+      if (tag === 'form' || role === 'form') return 'FORM';
+      if (tag === 'button' || role === 'button') return 'BUTTON';
+      if (tag === 'a' || role === 'link') return 'LINK';
+      if (tag === 'img' || tag === 'picture' || tag === 'canvas' || role === 'img') return 'IMAGE';
+      if (tag === 'video') return 'VIDEO';
+      if (tag === 'iframe') return 'FRAME';
+      if (tag === 'input') return ['checkbox', 'radio', 'range'].includes(element.type) ? 'INPUT' : null;
+      if (tag === 'article' || ['article', 'listitem'].includes(role) || /\b(card|tile)\b/i.test(element.className || '')) return 'CARD';
+      if (/^(h[1-6]|p|li|dt|dd|blockquote|figcaption)$/.test(tag) || ['heading', 'paragraph', 'note'].includes(role)) return 'TEXT';
+      if (/^(main|section|header|footer|aside)$/.test(tag) || ['main', 'region', 'complementary'].includes(role)) return 'SECTION';
+      if (tag === 'svg' || role === 'icon') return 'ICON';
+      return null;
+    }
+
+    for (const root of roots) {
+      for (const element of root.querySelectorAll('*')) {
+        if (nodes.length >= maxNodes) break;
+        if (!(element instanceof HTMLElement || element instanceof SVGElement)) continue;
+        if (element.closest?.('#livia-companion, [hidden], [inert], [data-livia-ignore]')) continue;
+        const role = (element.getAttribute('role') || '').toLowerCase();
+        const type = classify(element, role);
+        if (!type) continue;
+        if (element.closest?.('[contenteditable="true"], [role="textbox"], input[type="password"], textarea, [autocomplete="current-password"], [autocomplete="new-password"]')) continue;
+        if (element.closest?.('form') && !['BUTTON', 'LINK', 'INPUT'].includes(type)) continue;
+        if (!['BUTTON', 'LINK', 'INPUT'].includes(type) && LIVIACore.isSensitive(element)) continue;
+        if (element instanceof HTMLInputElement && !['checkbox', 'radio', 'range'].includes(element.type)) continue;
+        if (element instanceof HTMLFormElement) continue;
+
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05 || rect.width < 1 || rect.height < 1 || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) continue;
+
+        const active = element === document.activeElement;
+        const accessibleLabel = element.getAttribute('aria-label') || element.getAttribute('alt') || element.getAttribute('title') || '';
+        const text = type === 'INPUT' ? accessibleLabel : accessibleLabel || (type === 'TEXT' ? element.innerText || element.textContent || '' : element.innerText || '');
+        let parentElement = element.parentElement || element.getRootNode?.().host || null;
+        while (parentElement && !ids.has(parentElement)) {
+          parentElement = parentElement.parentElement || parentElement.getRootNode?.().host || null;
+        }
+        const parentId = parentElement ? ids.get(parentElement) || pageId : pageId;
+
+        const id = `scene-${sceneGeneration}-${nodes.length}`;
+        const ariaSource = Boolean(role || accessibleLabel);
+        const node = {
+          id,
+          type,
+          parentId,
+          children: [],
+          ...(text ? { text: String(text).replace(/\s+/g, ' ').trim().slice(0, 400) } : {}),
+          ...(role ? { semanticRole: role } : {}),
+          bounds: { x: Math.max(0, rect.left), y: Math.max(0, rect.top), w: Math.min(rect.right, window.innerWidth) - Math.max(0, rect.left), h: Math.min(rect.bottom, window.innerHeight) - Math.max(0, rect.top) },
+          visible: true,
+          interactive: ['BUTTON', 'LINK', 'INPUT'].includes(type) || element.tabIndex >= 0,
+          selected: element.getAttribute('aria-selected') === 'true' || element.getAttribute('aria-pressed') === 'true',
+          focused: active,
+          color: style.color,
+          style: { font: style.font, backgroundColor: style.backgroundColor, display: style.display },
+          source: ariaSource ? 'aria' : 'dom',
+          confidence: ariaSource ? 0.95 : 0.82
+        };
+        nodes.push(node);
+        ids.set(element, id);
+        sceneElementById.set(id, element);
+        const parent = nodes.find((candidate) => candidate.id === parentId);
+        if (parent) parent.children.push(id);
+      }
+    }
+
+    const url = `${location.origin}${location.pathname}`;
+    return LIVIACore.createSceneGraph({
+      page: { url, title: document.title },
+      viewport: { width: window.innerWidth, height: window.innerHeight, scrollX: window.scrollX, scrollY: window.scrollY },
+      nodes,
+      timestamp: Date.now()
+    });
+  }
+
+  function saveCurrentPageMemory(sendResponse) {
+    if (!state.analysisEnabled) {
+      sendResponse({ ok: false, error: 'Enable page analysis to remember this page.' });
+      return false;
+    }
+    if (!self.LIVIAMemory) {
+      sendResponse({ ok: false, error: 'Local memory is unavailable. Reload the extension and page.' });
+      return false;
+    }
+    const memory = self.LIVIAMemory.createPageMemory(buildPageScene(250));
+    if (!memory) {
+      sendResponse({ ok: false, error: 'This page has no safe title or URL to remember.' });
+      return false;
+    }
+    chrome.storage.local.get('pageMemories', (result) => {
+      const memories = self.LIVIAMemory.upsertMemory(result.pageMemories, memory);
+      chrome.storage.local.set({ pageMemories: memories }, () => {
+        const error = chrome.runtime.lastError;
+        if (error) sendResponse({ ok: false, error: 'Could not save local memory.' });
+        else sendResponse({ ok: true, memory: { title: memory.title, url: memory.url, timestamp: memory.timestamp } });
+      });
+    });
+    return true;
+  }
+
+  function storePageMemory(request, sendResponse) {
+    if (!state.analysisEnabled) {
+      sendResponse({ ok: false, error: 'Enable page analysis to remember this page.' });
+      return false;
+    }
+    if (!self.LIVIAMemory?.validPageMemory(request.memory)) {
+      sendResponse({ ok: false, error: 'Invalid local page-memory record.' });
+      return false;
+    }
+    const memory = { ...request.memory };
+    const embedding = self.LIVIAMemory.cleanEmbedding(request.embedding);
+    if (embedding) memory.embedding = embedding;
+    else delete memory.embedding;
+    chrome.storage.local.get('pageMemories', (result) => {
+      const memories = self.LIVIAMemory.upsertMemory(result.pageMemories, memory);
+      chrome.storage.local.set({ pageMemories: memories }, () => {
+        const error = chrome.runtime.lastError;
+        if (error) sendResponse({ ok: false, error: 'Could not save local memory.' });
+        else sendResponse({ ok: true, memory: { title: memory.title, url: memory.url, timestamp: memory.timestamp, embedded: Boolean(embedding) } });
+      });
+    });
+    return true;
+  }
+
+  function searchPageMemory(request, sendResponse) {
+    if (!self.LIVIAMemory?.validMemorySearchRequest(request)) {
+      sendResponse({ ok: false, error: 'Enter a search query of 1 to 160 characters.' });
+      return false;
+    }
+    chrome.storage.local.get('pageMemories', (result) => {
+      const results = self.LIVIAMemory.rankMemories(request.query, result.pageMemories || [], request.limit || 5, request.embedding);
+      sendResponse({ ok: true, results });
+    });
+    return true;
+  }
+
+  function getSceneActionTarget(id) {
+    const element = sceneElementById.get(id);
+    if (!(element instanceof HTMLElement) || !element.isConnected || element.closest('form, [contenteditable="true"], [role="textbox"], [hidden], [inert], [aria-hidden="true"]')) return null;
+    const style = window.getComputedStyle(element);
+    const bounds = element.getBoundingClientRect();
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05 || bounds.width < 1 || bounds.height < 1 || bounds.right <= 0 || bounds.bottom <= 0 || bounds.left >= window.innerWidth || bounds.top >= window.innerHeight) return null;
+    return element;
+  }
+
+  function actionClickIsAllowed(element) {
+    return LIVIACore.canActivateSceneElement({
+      tagName: element.tagName,
+      role: element.getAttribute('role'),
+      disabled: element.disabled === true || element.getAttribute('aria-disabled') === 'true',
+      insideForm: Boolean(element.closest('form')),
+      ariaHidden: element.getAttribute('aria-hidden') === 'true',
+      buttonType: element instanceof HTMLButtonElement ? element.type : '',
+      download: element instanceof HTMLAnchorElement && element.hasAttribute('download'),
+      target: element instanceof HTMLAnchorElement ? element.target : '',
+      href: element instanceof HTMLAnchorElement ? element.href : '',
+      origin: location.origin
+    });
+  }
+
+  function handleSceneAction(request, sendResponse) {
+    if (!LIVIACore.validElementActionRequest(request)) {
+      sendResponse({ ok: false, error: 'Invalid browser-action request.' });
+      return false;
+    }
+    const element = getSceneActionTarget(request.id);
+    if (!element) {
+      sendResponse({ ok: false, error: 'That scene target is stale or no longer visible. Find it again.' });
+      return false;
+    }
+    if (request.type === 'scroll-element') {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+      window.setTimeout(() => {
+        const bounds = element.getBoundingClientRect();
+        const verified = bounds.width > 0 && bounds.height > 0 && bounds.bottom > 0 && bounds.right > 0 && bounds.top < window.innerHeight && bounds.left < window.innerWidth;
+        sendResponse({ ok: verified, verified, error: verified ? undefined : 'Scroll target could not be brought into the viewport.' });
+      }, 550);
+      return true;
+    }
+    if (!actionClickIsAllowed(element)) {
+      sendResponse({ ok: false, error: 'For safety, LIVIA cannot activate form controls, external links, downloads, or new-tab links.' });
+      return false;
+    }
+
+    const before = {
+      url: location.href,
+      text: element.textContent,
+      pressed: element.getAttribute('aria-pressed'),
+      expanded: element.getAttribute('aria-expanded')
+    };
+    let changed = false;
+    const observedRoot = element.getRootNode();
+    const observer = new MutationObserver(() => { changed = true; });
+    observer.observe(observedRoot, { subtree: true, childList: true, attributes: true, characterData: true });
+    try {
+      element.click();
+    } catch {
+      observer.disconnect();
+      sendResponse({ ok: false, error: 'The target rejected the click.' });
+      return false;
+    }
+    window.setTimeout(() => {
+      observer.disconnect();
+      const verified = LIVIACore.verifyElementAction(before, {
+        url: location.href,
+        text: element.textContent,
+        pressed: element.getAttribute('aria-pressed'),
+        expanded: element.getAttribute('aria-expanded'),
+        focused: document.activeElement === element
+      }, changed);
+      sendResponse({ ok: verified, verified, error: verified ? undefined : 'Click was sent, but LIVIA could not verify a page change. Check before retrying.' });
+    }, 650);
+    return true;
+  }
+
   function animate() {
     if (document.hidden) {
       frameId = 0;
@@ -1233,6 +1480,41 @@
   function handleMessage(request, sender, sendResponse) {
     if (!request || typeof request !== 'object') return false;
     if (sender?.id && sender.id !== chrome.runtime.id) return false;
+    if (request.type === 'remember-page') {
+      if (!self.LIVIAMemory?.validRememberRequest(request)) {
+        sendResponse({ ok: false, error: 'Invalid page-memory request.' });
+        return false;
+      }
+      if (request.memory) return storePageMemory(request, sendResponse);
+      return saveCurrentPageMemory(sendResponse);
+    }
+    if (request.type === 'search-memory') return searchPageMemory(request, sendResponse);
+    if (request.type === 'get-scene') {
+      if (!LIVIACore.validSceneRequest(request)) {
+        sendResponse({ ok: false, error: 'Invalid scene request.' });
+        return false;
+      }
+      if (!state.analysisEnabled) {
+        sendResponse({ ok: false, error: 'Enable page analysis to inspect this page.' });
+        return false;
+      }
+      sendResponse({ ok: true, scene: buildPageScene(request.maxNodes || 250) });
+      return false;
+    }
+    if (request.type === 'find-element') {
+      if (!LIVIACore.validFindElementRequest(request)) {
+        sendResponse({ ok: false, error: 'Invalid element-finding request.' });
+        return false;
+      }
+      if (!state.analysisEnabled) {
+        sendResponse({ ok: false, error: 'Enable page analysis to find visible elements.' });
+        return false;
+      }
+      const scene = buildPageScene(500);
+      sendResponse({ ok: true, results: LIVIACore.findSceneElements(scene, request.query, request.limit || 3) });
+      return false;
+    }
+    if (request.type === 'scroll-element' || request.type === 'click-element') return handleSceneAction(request, sendResponse);
     if (request.type === 'sync') {
       chrome.storage.local.get(['settings', 'avatar'], (result) => {
         applySettings(result.settings || {});
@@ -1256,6 +1538,8 @@
         sendResponse({ ok: false, error: 'Unsupported command shape.' });
         return true;
       }
+
+      if (action.action === 'remember') return saveCurrentPageMemory(sendResponse);
 
       if (action.action === 'transform') avatar.form = action.form;
       if (action.action === 'scale') avatar.scale = action.value;

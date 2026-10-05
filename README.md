@@ -58,8 +58,16 @@ Import the GitHub repository into Vercel with the web project root set to `apps/
 
 - Site access is optional and granted per site.
 - The extension does not inspect form contents or cross-origin iframe contents.
-- Page-derived target labels remain local to the active tab; they are not sent to LIVIA's API.
-- Commands map to a fixed action set; arbitrary JavaScript is never executed.
+- Page-derived data stays in the tab unless the user explicitly saves a page, checks page context for a local prompt, or clicks screenshot analysis; those flows send only to the loopback agent.
+- Browser clicks are restricted to confirmed visible same-origin buttons/links outside forms, and success is reported only when a page change is observed. Arbitrary JavaScript is never executed.
 - See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 Deploying the web app does not install the browser extension; users must load the unpacked extension separately.
+
+## Local AI agent
+
+The separate `apps/agent` service binds to `127.0.0.1` and proxies bounded requests to local Ollama, whisper.cpp, and Piper services. It requires a bearer token and an exact allowed-origin list; it does not receive browser page content unless a user explicitly requests screenshot/context analysis. No cloud model key is required.
+
+Copy `.env.example` to `.env`, replace `LIVIA_AGENT_TOKEN` with a unique random value of at least 32 characters, set the allowed extension origin to `chrome-extension://<id>` using the ID shown on `chrome://extensions`, and configure local model paths. Install the configured Ollama models, run whisper.cpp server bound to `127.0.0.1:8080`, install Piper and its voice model, then run `npm run dev:agent`. The agent health endpoint is `http://127.0.0.1:4317/health`; the Vercel-safe web health endpoint is `/api/health`.
+
+In the extension popup, open **Local AI**, connect with the same token, and grant loopback access. Microphone recording uses local RMS silence detection and stops after 15 seconds; it transcribes locally, and you review the transcript before sending it to Ollama. Screenshot analysis requires a separate click. Page memory uses BM25 keyword ranking by default and adds Ollama cosine embeddings when `LIVIA_MODEL_EMBEDDING` is configured; embeddings and page memories stay in extension-local storage. **Find visible element** supports spatial queries; scrolling is verified, and clicks require a separate confirmation and are limited to safe same-origin controls.

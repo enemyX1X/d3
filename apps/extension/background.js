@@ -1,4 +1,4 @@
-const contentFiles = ['core.js', 'livia-character.js', 'content.js'];
+const contentFiles = ['core.js', 'livia-character.js', 'memory.js', 'content.js'];
 const pendingInjections = new Map();
 
 function sitePattern(rawUrl) {
