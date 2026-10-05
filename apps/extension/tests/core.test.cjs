@@ -80,3 +80,9 @@ test('large main video viewport is excluded while smaller thumbnails remain targ
   assert.equal(core.isPrimaryViewportCandidate(smallTile, { x: 0, y: 0, w: 220, h: 140 }, 1600, 900), false);
   assert.equal(core.isPrimaryViewportCandidate({ id: 'other', className: 'card', tagName: 'DIV' }, { x: 0, y: 0, w: 260, h: 160 }, 1600, 900), false);
 });
+
+test('live targets stay native until hit; destroyed and rebuilding targets are masked', () => {
+  assert.equal(core.needsTargetMask({ destroyed: false, rebuildStartedAt: 0 }), false);
+  assert.equal(core.needsTargetMask({ destroyed: true, rebuildStartedAt: 0 }), true);
+  assert.equal(core.needsTargetMask({ destroyed: true, rebuildStartedAt: 100 }), true);
+});

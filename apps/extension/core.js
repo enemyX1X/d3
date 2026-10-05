@@ -90,6 +90,10 @@
     return looksLikePrimaryPlayer && largeEnough;
   }
 
+  function needsTargetMask(target) {
+    return Boolean(target && (target.destroyed || target.rebuildStartedAt));
+  }
+
   function aim(from, to, speed, fallback = { x: 0, y: -1 }) {
     let dx = to.x - from.x;
     let dy = to.y - from.y;
@@ -259,7 +263,7 @@
     }));
   }
 
-  const api = { FORMS, parse, valid, isSensitive, isPrimaryViewportCandidate, aim, rebuildProgress, points, planSceneClear, hitTest, hitTestSegment, createFragments, createTextDebris, createGlassShards, createSmoke };
+  const api = { FORMS, parse, valid, isSensitive, isPrimaryViewportCandidate, needsTargetMask, aim, rebuildProgress, points, planSceneClear, hitTest, hitTestSegment, createFragments, createTextDebris, createGlassShards, createSmoke };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

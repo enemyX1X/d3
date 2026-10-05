@@ -598,8 +598,11 @@
   function drawGame(now) {
     ctx.save();
 
-    for (const target of game.targets) drawTargetMask(target);
-    for (const target of game.targets) drawTarget(target, now);
+    for (const target of game.targets) {
+      if (!LIVIACore.needsTargetMask(target)) continue;
+      drawTargetMask(target);
+      if (target.rebuildStartedAt) drawTarget(target, now);
+    }
     for (const puff of game.smoke) drawSmoke(puff);
 
     ctx.fillStyle = avatar.color;
