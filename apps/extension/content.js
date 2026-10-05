@@ -1055,17 +1055,11 @@
       });
     }
 
-    const visualSelector = 'img, video, canvas, iframe, embed, object, picture, svg, [data-video-id], [data-thumbnail-id], [data-media], [data-testid*="video"], [data-testid*="thumbnail"], [data-testid*="media"], [class*="video"], [class*="thumbnail"], [class*="player"], [class*="media"], [class*="poster"], [class*="cover"], [class*="teaser"], [class*="card-image"], [class*="image-card"], [role="img"], [aria-label*="video"], [aria-label*="thumbnail"], [alt], [src]';
+    const visualSelector = 'img, video, canvas';
     for (const root of roots) {
       for (const element of root.querySelectorAll(visualSelector)) addVisualTarget(element);
     }
     for (const element of document.querySelectorAll(visualSelector)) addVisualTarget(element);
-
-    const playerHostSelector = '#movie_player, ytd-player, ytd-thumbnail, ytd-video-preview, ytd-rich-item-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer, ytd-playlist-video-renderer, .html5-video-container, .html5-video-player, .ytp-cued-thumbnail-overlay, .ytp-iv-video-content, .ytp-chrome-bottom, .ytp-player-content, .ytp-thumb-overlay, .ytp-thumbnail-overlay, .yt-core-image, .yt-image, yt-image, [data-youtube-id], [data-ytd-video-id], [class*="ytd-thumbnail"], [class*="youtube-player"], [class*="video-player"], [class*="player-shell"], [class*="video-shell"], [class*="media-shell"], [class*="poster-frame"], [class*="thumbnail-card"], [class*="video-card"], [class*="thumb"]';
-    for (const root of roots) {
-      for (const element of root.querySelectorAll(playerHostSelector)) addVisualTarget(element, true);
-    }
-    for (const element of document.querySelectorAll(playerHostSelector)) addVisualTarget(element, true);
 
     const textNodes = [];
     for (const root of roots) {
