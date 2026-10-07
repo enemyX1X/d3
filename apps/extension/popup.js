@@ -1,6 +1,7 @@
-const state = { paused: false, disabledSites: [], analysisEnabled: true, host: '', sitePattern: null, siteGranted: false, tabId: null, localAgentToken: '', localAgentGranted: false, localConversation: [], foundElementId: '', foundElementLabel: '' };
+const state = { paused: false, disabledSites: [], analysisEnabled: true, host: '', sitePattern: null, siteGranted: false, allSitesGranted: false, tabId: null, localAgentToken: '', localAgentGranted: false, localConversation: [], foundElementId: '', foundElementLabel: '' };
 const localAgentUrl = 'http://127.0.0.1:4317';
 const localAgentPermission = 'http://127.0.0.1/*';
+const allSitePatterns = ['http://*/*', 'https://*/*'];
 let voiceRecorder = null;
 let voiceStream = null;
 let voiceAudioContext = null;
@@ -556,6 +557,11 @@ function renderState() {
   siteButton.textContent = !state.sitePattern ? 'Open a webpage to enable' : isEnabled ? 'Disable on this site' : 'Enable on this site';
   siteButton.disabled = !state.sitePattern;
   siteButton.title = !state.sitePattern ? 'Browser settings and extension pages do not allow content scripts.' : '';
+  const allSitesButton = document.getElementById('all-sites');
+  allSitesButton.textContent = state.allSitesGranted ? 'Revoke all-sites access' : 'Allow on all HTTP/HTTPS sites';
+  allSitesButton.title = state.allSitesGranted
+    ? 'Revoke LIVIA’s broad web access. Individual site grants may remain.'
+    : 'Requests access to HTTP and HTTPS sites only. Chrome will ask you to confirm.';
   document.getElementById('analysis').textContent = state.analysisEnabled ? 'Disable page analysis' : 'Enable page analysis';
 }
 
@@ -574,6 +580,7 @@ function renderState() {
   state.localAgentToken = typeof localSettings.liviaLocalAgentToken === 'string' ? localSettings.liviaLocalAgentToken : '';
   state.localAgentGranted = await chrome.permissions.contains({ origins: [localAgentPermission] });
   state.siteGranted = state.sitePattern ? await chrome.permissions.contains({ origins: [state.sitePattern] }) : false;
+  state.allSitesGranted = await chrome.permissions.contains({ origins: allSitePatterns });
   if (!state.sitePattern) {
     setMessage('Chrome protects this page. Open a normal http:// or https:// website, then enable LIVIA there.');
   }
@@ -648,6 +655,31 @@ document.getElementById('site').addEventListener('click', async () => {
     const response = await chrome.runtime.sendMessage({ type: 'enable-site', tabId: state.tabId });
     if (!response?.ok) setMessage(response?.error || 'Could not enable LIVIA on this page.');
     else setMessage('LIVIA is enabled on this site.');
+  }
+  renderState();
+});
+
+document.getElementById('all-sites').addEventListener('click', async () => {
+  try {
+    if (state.allSitesGranted) {
+      await chrome.permissions.remove({ origins: allSitePatterns });
+      state.allSitesGranted = await chrome.permissions.contains({ origins: allSitePatterns });
+      state.siteGranted = state.sitePattern ? await chrome.permissions.contains({ origins: [state.sitePattern] }) : false;
+      setMessage(state.allSitesGranted ? 'Could not revoke all-sites access.' : 'All-sites access revoked. Individual site grants may remain.');
+    } else {
+      const granted = await chrome.permissions.request({ origins: allSitePatterns });
+      state.allSitesGranted = granted && await chrome.permissions.contains({ origins: allSitePatterns });
+      state.siteGranted = state.sitePattern ? await chrome.permissions.contains({ origins: [state.sitePattern] }) : false;
+      if (!granted) setMessage('All-sites access was not granted. You can still enable the current site only.');
+      else if (state.sitePattern && state.tabId && !state.disabledSites.includes(state.host)) {
+        const response = await chrome.runtime.sendMessage({ type: 'enable-site', tabId: state.tabId });
+        setMessage(response?.ok ? 'LIVIA can now follow you across permitted HTTP/HTTPS tabs.' : response?.error || 'Permission granted, but the active tab could not be connected.');
+      } else {
+        setMessage('All-sites permission granted. LIVIA starts only on enabled tabs and pages.');
+      }
+    }
+  } catch {
+    setMessage('Could not update site permissions. Manage them in the browser extension settings.');
   }
   renderState();
 });
