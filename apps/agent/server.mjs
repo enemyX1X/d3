@@ -38,8 +38,8 @@ function binary(response, status, contentType, payload, headers = {}) {
 function isLoopbackHost(hostHeader) {
   if (typeof hostHeader !== 'string') return false;
   try {
-    const hostname = new URL(`http://${hostHeader}`).hostname;
-    return hostname === '127.0.0.1' || hostname === 'localhost';
+    const hostname = new URL(`http://${hostHeader}`).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1';
   } catch {
     return false;
   }
@@ -261,7 +261,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     console.error('Set LIVIA_AGENT_TOKEN to a random value of at least 32 characters.');
     process.exitCode = 1;
   } else {
-    const allowedOrigins = (process.env.LIVIA_ALLOWED_ORIGINS || 'http://localhost:3000')
+    const allowedOrigins = (process.env.LIVIA_ALLOWED_ORIGINS || 'http://localhost:3000,http://127.0.0.1:3000,http://[::1]:3000')
       .split(',').map((origin) => origin.trim()).filter(Boolean);
     const port = Number(process.env.LIVIA_AGENT_PORT || 4317);
     let provider;
