@@ -5,6 +5,8 @@ import path from 'node:path';
 import { createDatabase } from './db.mjs';
 import { createCrawler } from './crawler.mjs';
 import { listSources, registerSource } from './source-registry.mjs';
+import { hybridSearch } from './retrieval.mjs';
+import { temporalQuery } from './temporal.mjs';
 
 const MAX_BODY_BYTES = 32_000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -161,6 +163,80 @@ export function createIntelligenceServer({ pool, crawler, token, allowedOrigins 
            ORDER BY change.detected_at DESC LIMIT $1`, [limit]
         );
         sendJson(response, 200, { ok: true, changes: result.rows }, corsHeaders);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/search') {
+        const body = await readJson(request);
+        if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.query !== 'string' || !body.query.trim()) {
+          sendJson(response, 400, { ok: false, error: 'Provide a non-empty query string.' }, corsHeaders);
+          return;
+        }
+        const limit = Number(body.limit || 5);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 20) {
+          sendJson(response, 400, { ok: false, error: 'limit must be from 1 to 20.' }, corsHeaders);
+          return;
+        }
+        const result = await pool.query(
+          `SELECT source.source_id, source.source_name, source.url, source.authority_level, source.authority_score,
+             document.document_id, document.canonical_url, document.title,
+             version.version_id, version.normalized_text, version.published_at, version.effective_from, version.effective_until
+           FROM document_versions AS version
+           JOIN documents AS document ON document.document_id = version.document_id
+           JOIN sources AS source ON source.source_id = document.source_id
+           ORDER BY version.retrieved_at DESC LIMIT 200`
+        );
+        const records = result.rows.map((row) => ({
+          id: row.version_id,
+          title: row.title || row.source_name,
+          text: row.normalized_text,
+          url: row.canonical_url || row.url,
+          authority: row.authority_score ?? 0.2,
+          source_id: row.source_id,
+          source_name: row.source_name,
+          published_at: row.published_at,
+          effective_from: row.effective_from,
+          effective_until: row.effective_until
+        }));
+        const hits = hybridSearch({ query: body.query, records, limit });
+        sendJson(response, 200, { ok: true, query: body.query, results: hits }, corsHeaders);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/ask') {
+        const body = await readJson(request);
+        if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.query !== 'string' || !body.query.trim()) {
+          sendJson(response, 400, { ok: false, error: 'Provide a non-empty query string.' }, corsHeaders);
+          return;
+        }
+        const limit = Number(body.limit || 2);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 10) {
+          sendJson(response, 400, { ok: false, error: 'limit must be from 1 to 10.' }, corsHeaders);
+          return;
+        }
+        const result = await pool.query(
+          `SELECT source.source_id, source.source_name, source.url, source.authority_level, source.authority_score,
+             document.document_id, document.canonical_url, document.title,
+             version.version_id, version.normalized_text, version.published_at, version.effective_from, version.effective_until
+           FROM document_versions AS version
+           JOIN documents AS document ON document.document_id = version.document_id
+           JOIN sources AS source ON source.source_id = document.source_id
+           ORDER BY version.retrieved_at DESC LIMIT 200`
+        );
+        const records = result.rows.map((row) => ({
+          id: row.version_id,
+          title: row.title || row.source_name,
+          text: row.normalized_text,
+          url: row.canonical_url || row.url,
+          authority: row.authority_score ?? 0.2,
+          source_id: row.source_id,
+          source_name: row.source_name,
+          published_at: row.published_at,
+          effective_from: row.effective_from,
+          effective_until: row.effective_until
+        }));
+        const timeline = temporalQuery({ query: body.query, records, limit });
+        sendJson(response, 200, { ok: true, query: body.query, timeline, evidence: timeline.previous || timeline.current ? [timeline.previous, timeline.current].filter(Boolean) : [] }, corsHeaders);
         return;
       }
 

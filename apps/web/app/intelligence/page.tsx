@@ -51,6 +51,14 @@ export default function IntelligencePage() {
   const [jurisdiction, setJurisdiction] = useState('');
   const [status, setStatus] = useState('Connect to the local intelligence service.');
   const [busy, setBusy] = useState(false);
+  const [serviceStatus, setServiceStatus] = useState<{ ok: boolean; service?: string; database?: string } | null>(null);
+
+  const rolloutSources = [
+    { name: 'Karnataka Transport Department', url: 'https://transport.karnataka.gov.in/notices', reason: 'Official licensing and appointment notices' },
+    { name: 'Ministry of Road Transport & Highways', url: 'https://morth.gov.in/', reason: 'National transport policy and public notices' },
+    { name: 'State public notice RSS feeds', url: 'https://example.gov.in/feed.xml', reason: 'Feed-based official notice stream' },
+    { name: 'Regional authority boards', url: 'https://example.gov.in/authorities', reason: 'Rule changes and publication updates' }
+  ];
 
   async function api<T>(path: string, init: RequestInit = {}) {
     const response = await fetch(`${API_URL}${path}`, {
@@ -84,9 +92,10 @@ export default function IntelligencePage() {
     setBusy(true);
     try {
       const healthResponse = await fetch(`${API_URL}/api/health`, { cache: 'no-store', credentials: 'omit' });
-      const health = await readResponse<{ ok: true }>(healthResponse);
+      const health = await readResponse<{ ok: boolean; service?: string; database?: string }>(healthResponse);
       if (!health.ok) throw new Error('Local service health check failed.');
       setConnected(true);
+      setServiceStatus(health);
       await Promise.all([refreshSources(), refreshChanges()]);
       setStatus('Connected. Only registered sources are monitored.');
     } catch (error) {
@@ -162,7 +171,7 @@ export default function IntelligencePage() {
       </section>
 
       <section className="intelligence-connect" aria-labelledby="connect-heading">
-        <div><h2 id="connect-heading">Local service</h2><p>{status}</p></div>
+        <div><h2 id="connect-heading">Local service</h2><p>{status}</p>{serviceStatus ? <p className="eyebrow">{serviceStatus.service} · {serviceStatus.database}</p> : null}</div>
         <div className="intelligence-connect__controls">
           <input aria-label="Intelligence service token" type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Local service token" />
           <button type="button" className="btn solid-btn" onClick={connect} disabled={busy}>{connected ? 'Refresh' : 'Connect'}</button>

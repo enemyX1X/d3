@@ -77,3 +77,10 @@ In the extension popup, open **Local AI**, connect with the same token, and gran
 The new `apps/intelligence` service provides the first source-monitoring pipeline: official-source registry, robots-aware same-origin sitemap discovery, SSRF-resistant public HTTPS fetches, normalized HTML versions, SHA-256 change detection, structural diffs, and evidence excerpts. Current change significance remains `UNASSESSED`; it does not claim semantic impact or generate alerts. Crawling is limited to registered source URLs and at most ten same-host sitemap pages per run.
 
 For local development, copy `.env.example` to `.env`, set a unique `INTELLIGENCE_API_TOKEN` of at least 32 characters, and run `npm run db:up`, `npm run migrate:intelligence`, then `npm run dev:intelligence`. The service binds to `127.0.0.1:4320`; allowed browser origins are configured with `INTELLIGENCE_ALLOWED_ORIGINS`. The dev-only Compose password must be replaced outside local development. Add a source with authenticated `POST /api/sources`, trigger `POST /api/crawl` with its returned `source_id`, and inspect `GET /api/changes`. All source and crawl APIs require the bearer token. Real database migration/crawl smoke tests require Docker/PostgreSQL running; the automated tests use deterministic HTTP/database doubles and never claim a crawl succeeded against a live public source.
+
+## Intelligence deployment and operations
+
+See the deployment and runbook guides for setup, health checks, and operating procedures:
+
+- [docs/deployment.md](docs/deployment.md)
+- [docs/runbook.md](docs/runbook.md)

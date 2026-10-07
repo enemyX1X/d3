@@ -13,6 +13,7 @@
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose stop postgres",
     "migrate:intelligence": "npm --workspace apps/intelligence run migrate",
+    "seed:intelligence": "node --env-file=.env apps/intelligence/seed-sources.mjs",
     "build:web": "npm --workspace apps/web run build",
     "typecheck:web": "npm --workspace apps/web run typecheck",
     "test:web": "npm --workspace apps/web run test",

@@ -3,6 +3,7 @@ import { normalizeFeed, normalizeHtml } from './normalizer.mjs';
 import { robotsPolicy } from './robots.mjs';
 import { structuralDiff } from './change-detection.mjs';
 import { parseSitemap } from './sitemaps.mjs';
+import { chunkText, vectorFromText } from './retrieval.mjs';
 
 const robotsCache = new Map();
 const hostLastRequest = new Map();
@@ -138,6 +139,25 @@ export function createCrawler({ pool, fetcher = fetchPublicHttps, now = Date.now
         [document.document_id, Number(numberResult.rows[0].next), page.contentHash, page.normalizedText, JSON.stringify(page.blocks), page.publishedAt, header(response.headers, 'etag'), header(response.headers, 'last-modified')]
       );
       const versionId = versionResult.rows[0].version_id;
+      const chunks = chunkText(page.normalizedText, { maxChars: 700, overlap: 120 });
+      for (let index = 0; index < chunks.length; index += 1) {
+        const chunk = chunks[index];
+        const vector = JSON.stringify(vectorFromText(chunk, 32));
+        await client.query(
+          `INSERT INTO document_chunks (version_id, chunk_index, content, embedding, embedding_model, metadata)
+           VALUES ($1, $2, $3, $4::vector, $5, $6::jsonb)
+           ON CONFLICT (version_id, chunk_index) DO NOTHING`,
+          [versionId, index, chunk, vector, 'hash-v1', JSON.stringify({
+            document_id: document.document_id,
+            source_id: source.source_id,
+            canonical_url: page.canonicalUrl,
+            title: page.title,
+            authority_level: source.authority_level,
+            authority_score: source.authority_score,
+            published_at: page.publishedAt
+          })]
+        );
+      }
       await client.query('UPDATE documents SET current_version_id = $2, title = $3 WHERE document_id = $1', [document.document_id, versionId, page.title]);
       let change = null;
       if (previous) {
