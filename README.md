@@ -43,7 +43,7 @@ npm run build:extension
 1. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
 2. Enable Developer mode.
 3. Choose **Load unpacked** and select the generated `dist/livia-extension` folder. Do not select the repository root.
-4. Leave `chrome://extensions`, open an ordinary page such as `https://example.com`, and open the LIVIA popup. Choose **Allow on all HTTP/HTTPS sites** for cross-tab coverage, then accept Chrome's permission prompt; or choose **Enable on this site** to grant access only to the current site. Browser pages like `chrome://extensions` are protected and cannot host the companion.
+4. Leave `chrome://extensions`, open an ordinary page such as `https://example.com`, open the LIVIA popup, and choose **Enable on this site**. Browser pages like `chrome://extensions` are protected and cannot host the companion.
 5. Choose **Play** to arm visible DOM text lines and images in the viewport; nothing is destroyed until you fire. Use **W/A/S/D** to move the robot, move the pointer to aim, and press **Space** to jump beside the next live asset. Click/hold fires continuous golden rounds; right-click or **M** fires a locally guided missile. Press **Q** to open LIVIA's transparent page assistant for a local visible-text summary, read aloud, Google News search, Google Translate, or screenshot. News and translation open Google in a new tab; page text is not uploaded to an AI service. Text becomes glyph debris and smoke; image copies break into glass-like shards and smoke. Hit every target to see your clear time and score over a blank LIVIA overlay for 60 seconds. The webpage DOM is never changed.
 
 Browser-protected pages (such as browser settings and extension stores) do not allow injection. Site permission can be revoked in the popup or browser extension settings.
@@ -71,16 +71,3 @@ The separate `apps/agent` service binds to `127.0.0.1` and proxies bounded reque
 Copy `.env.example` to `.env`, replace `LIVIA_AGENT_TOKEN` with a unique random value of at least 32 characters, set the allowed extension origin to `chrome-extension://<id>` using the ID shown on `chrome://extensions`, and configure local model paths. Install the configured Ollama models, run whisper.cpp server bound to `127.0.0.1:8080`, install Piper and its voice model, then run `npm run dev:agent`. The agent health endpoint is `http://127.0.0.1:4317/health`; the Vercel-safe web health endpoint is `/api/health`.
 
 In the extension popup, open **Local AI**, connect with the same token, and grant loopback access. Microphone recording uses local RMS silence detection and stops after 15 seconds; it transcribes locally, and you review the transcript before sending it to Ollama. Screenshot analysis requires a separate click. Page memory uses BM25 keyword ranking by default and adds Ollama cosine embeddings when `LIVIA_MODEL_EMBEDDING` is configured; embeddings and page memories stay in extension-local storage. **Find visible element** supports spatial queries; scrolling is verified, and clicks require a separate confirmation and are limited to safe same-origin controls.
-
-## Continuous intelligence MVP
-
-The new `apps/intelligence` service provides the first source-monitoring pipeline: official-source registry, robots-aware same-origin sitemap discovery, SSRF-resistant public HTTPS fetches, normalized HTML versions, SHA-256 change detection, structural diffs, and evidence excerpts. Current change significance remains `UNASSESSED`; it does not claim semantic impact or generate alerts. Crawling is limited to registered source URLs and at most ten same-host sitemap pages per run.
-
-For local development, copy `.env.example` to `.env`, set a unique `INTELLIGENCE_API_TOKEN` of at least 32 characters, and run `npm run db:up`, `npm run migrate:intelligence`, then `npm run dev:intelligence`. The service binds to `127.0.0.1:4320`; allowed browser origins are configured with `INTELLIGENCE_ALLOWED_ORIGINS`. The dev-only Compose password must be replaced outside local development. Add a source with authenticated `POST /api/sources`, trigger `POST /api/crawl` with its returned `source_id`, and inspect `GET /api/changes`. All source and crawl APIs require the bearer token. Real database migration/crawl smoke tests require Docker/PostgreSQL running; the automated tests use deterministic HTTP/database doubles and never claim a crawl succeeded against a live public source.
-
-## Intelligence deployment and operations
-
-See the deployment and runbook guides for setup, health checks, and operating procedures:
-
-- [docs/deployment.md](docs/deployment.md)
-- [docs/runbook.md](docs/runbook.md)

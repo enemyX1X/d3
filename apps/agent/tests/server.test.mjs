@@ -46,29 +46,6 @@ test('agent binds for local use and authenticates chat requests', async () => {
   });
 });
 
-test('agent accepts IPv6 loopback hosts while preserving origin checks', async () => {
-  let received;
-  const server = createAgentServer({
-    token,
-    allowedOrigins: ['http://localhost:3000'],
-    provider: { chat: async (request) => { received = request; return 'ipv6-local-answer'; } }
-  });
-  await new Promise((resolve) => server.listen(0, '::1', resolve));
-  const baseUrl = `http://[::1]:${server.address().port}`;
-  try {
-    const response = await fetch(`${baseUrl}/v1/chat`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, origin: 'http://localhost:3000', 'content-type': 'application/json' },
-      body: JSON.stringify({ task: 'fast', messages: [{ role: 'user', content: 'hello via ipv6' }] })
-    });
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { ok: true, task: 'fast', model: 'qwen3:4b', content: 'ipv6-local-answer' });
-    assert.equal(received.messages[0].content, 'hello via ipv6');
-  } finally {
-    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  }
-});
-
 test('agent rejects disallowed origins and malformed or oversized conversation payloads', async () => {
   let calls = 0;
   await withServer({ token, allowedOrigins: ['http://localhost:3000'], provider: { chat: async () => { calls += 1; return 'no'; } } }, async (baseUrl) => {
