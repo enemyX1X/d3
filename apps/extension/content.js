@@ -3,6 +3,9 @@
   window.__liviaContentInitialized = true;
 
   const { parse, valid, isSensitive } = self.LIVIACore;
+  const Rag = self.LIVIARag;
+  const PageMarkdown = self.LIVIAPage;
+  const ragCache = { key: '', index: null };
   const state = {
     paused: false,
     disabledSites: [],
@@ -16,7 +19,6 @@
     y: window.innerHeight / 2,
     vx: 0,
     vy: 0,
-    heading: 0,
     form: 'sphere',
     scale: 1,
     color: '#7cf3ff',
@@ -41,14 +43,7 @@
     audioContext: null,
     startedAt: 0,
     clearSeconds: 0,
-    totalTargets: 0,
-    screenFlash: 0,
-    screenShake: 0,
-    moveKeys: { up: false, down: false, left: false, right: false },
-    jumpFrom: null,
-    jumpTo: null,
-    jumpStartedAt: 0,
-    jumpIndex: -1
+    totalTargets: 0
   };
 
   const overlay = document.createElement('div');
@@ -58,186 +53,20 @@
   const canvas = document.createElement('canvas');
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
-  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0;';
+  canvas.style.cssText = 'width:100%;height:100%;display:block;';
   overlay.appendChild(canvas);
-
-  const characterCanvas = document.createElement('canvas');
-  characterCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;';
-  overlay.appendChild(characterCanvas);
   document.documentElement.appendChild(overlay);
 
   const ctx = canvas.getContext('2d');
-  const character = self.LIVIACharacter?.create(characterCanvas, chrome.runtime.getURL('assets/box-02_robot.glb'));
-  const assistantWidget = document.createElement('section');
-  assistantWidget.setAttribute('aria-label', 'Ask LIVIA');
-  assistantWidget.style.cssText = 'position:fixed;top:72px;right:16px;width:min(360px,calc(100vw - 28px));max-height:calc(100vh - 96px);overflow:auto;box-sizing:border-box;padding:16px;border:1px solid rgba(124,243,255,.5);border-radius:14px;background:rgba(5,10,18,.84);backdrop-filter:blur(16px);box-shadow:0 14px 48px rgba(0,0,0,.45),0 0 24px rgba(124,243,255,.12);color:#edf6ff;font:13px/1.5 system-ui,sans-serif;pointer-events:auto;display:none;';
-  overlay.appendChild(assistantWidget);
   let frameId = 0;
   let lastFrameAt = 0;
   let scanTimer = 0;
-  let sceneGeneration = 0;
-  const sceneElementById = new Map();
-
-  const assistantHeader = document.createElement('div');
-  assistantHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;';
-  const assistantTitle = document.createElement('strong');
-  assistantTitle.textContent = 'Ask LIVIA';
-  assistantTitle.style.cssText = 'font-size:16px;';
-  const assistantClose = document.createElement('button');
-  assistantClose.type = 'button';
-  assistantClose.textContent = 'Close';
-  assistantClose.style.cssText = 'border:1px solid rgba(124,243,255,.4);border-radius:8px;background:transparent;color:inherit;padding:5px 9px;cursor:pointer;';
-  assistantHeader.append(assistantTitle, assistantClose);
-  const assistantHint = document.createElement('p');
-  assistantHint.textContent = 'Summary and reading stay local. News and translation open Google.';
-  assistantHint.style.cssText = 'margin:0 0 12px;color:#a7bad8;font-size:12px;';
-  const languageSelect = document.createElement('select');
-  languageSelect.setAttribute('aria-label', 'Translation language');
-  languageSelect.style.cssText = 'width:100%;margin:0 0 10px;padding:8px;border:1px solid rgba(124,243,255,.32);border-radius:8px;background:#111a27;color:#edf6ff;';
-  for (const [code, label] of [['en', 'English'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'], ['hi', 'Hindi']]) {
-    const option = document.createElement('option');
-    option.value = code;
-    option.textContent = label;
-    languageSelect.appendChild(option);
-  }
-  const assistantActions = document.createElement('div');
-  assistantActions.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;';
-  const assistantQuestion = document.createElement('input');
-  assistantQuestion.type = 'text';
-  assistantQuestion.maxLength = 180;
-  assistantQuestion.placeholder = 'Ask about this page...';
-  assistantQuestion.setAttribute('aria-label', 'Ask LIVIA about this page');
-  assistantQuestion.style.cssText = 'width:100%;min-height:38px;box-sizing:border-box;margin:10px 0 0;padding:8px 10px;border:1px solid rgba(124,243,255,.32);border-radius:8px;background:#111a27;color:#edf6ff;';
-  const askButton = document.createElement('button');
-  askButton.type = 'button';
-  askButton.textContent = 'Ask';
-  askButton.style.cssText = 'width:100%;min-height:36px;margin-top:7px;border:1px solid rgba(124,243,255,.42);border-radius:8px;background:rgba(124,243,255,.14);color:#edf6ff;cursor:pointer;';
-  const assistantResult = document.createElement('div');
-  assistantResult.setAttribute('aria-live', 'polite');
-  assistantResult.style.cssText = 'margin-top:12px;padding:10px;border:1px solid rgba(124,243,255,.18);border-radius:9px;background:rgba(14,22,34,.72);white-space:pre-wrap;overflow-wrap:anywhere;';
-  assistantWidget.append(assistantHeader, assistantHint, assistantQuestion, askButton, languageSelect, assistantActions, assistantResult);
-
-  function setAssistantResult(message) {
-    assistantResult.replaceChildren();
-    assistantResult.textContent = message;
-  }
-
-  function makeAssistantButton(label, onClick) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = label;
-    button.style.cssText = 'min-height:38px;border:1px solid rgba(124,243,255,.28);border-radius:8px;background:rgba(124,243,255,.07);color:#edf6ff;padding:7px 8px;cursor:pointer;';
-    button.addEventListener('click', onClick);
-    assistantActions.appendChild(button);
-    return button;
-  }
-
-  function toggleAssistantWidget(forceOpen) {
-    const open = typeof forceOpen === 'boolean' ? forceOpen : assistantWidget.style.display === 'none';
-    assistantWidget.style.display = open ? 'block' : 'none';
-    if (open) assistantClose.focus({ preventScroll: true });
-  }
-
-  function summarizePage() {
-    const lines = scanVisibleText()
-      .filter((item) => item.type === 'TEXT' && item.text.trim())
-      .map((item) => item.text.trim().replace(/\s+/g, ' '));
-    if (!lines.length) {
-      setAssistantResult('No readable page text is available in the current viewport.');
-      return;
-    }
-    const uniqueLines = [...new Set(lines)].slice(0, 6);
-    setAssistantResult(`Local summary of visible text\n\n${uniqueLines.join('\n')}`);
-  }
-
-  function requestAssistantAction(type, extra = {}) {
-    setAssistantResult('Working...');
-    chrome.runtime.sendMessage({ type, ...extra }, (response) => {
-      const error = chrome.runtime.lastError;
-      if (error || !response?.ok) {
-        setAssistantResult(response?.error || error?.message || 'That action could not be completed.');
-        return;
-      }
-      if (type === 'assistant-capture') {
-        assistantResult.replaceChildren();
-        const preview = document.createElement('img');
-        preview.alt = 'Screenshot of the current page';
-        preview.src = response.dataUrl;
-        preview.style.cssText = 'display:block;width:100%;max-height:340px;object-fit:contain;border-radius:6px;';
-        const download = document.createElement('a');
-        download.href = response.dataUrl;
-        download.download = 'livia-page-screenshot.png';
-        download.textContent = 'Download screenshot';
-        download.style.cssText = 'display:inline-block;margin-top:8px;color:#7cf3ff;';
-        assistantResult.append(preview, download);
-      } else {
-        setAssistantResult(response.message || 'Opened in a new tab.');
-      }
-    });
-  }
-
-  function askAssistant() {
-    const question = assistantQuestion.value.trim().toLowerCase();
-    if (!question) {
-      setAssistantResult('Ask me to summarize, find latest news, translate, read aloud, or take a screenshot.');
-    } else if (/summari[sz]|explain|what is this page|key points/.test(question)) {
-      summarizePage();
-    } else if (/news|latest|recent|updates/.test(question)) {
-      const topic = (document.title || '').replace(/\s*[|–—-]\s*[^|–—-]+$/, '').trim().slice(0, 120);
-      requestAssistantAction('assistant-news', { topic: topic || location.hostname });
-    } else if (/translat|language|convert/.test(question)) {
-      requestAssistantAction('assistant-translate', { language: languageSelect.value });
-    } else if (/read|speak|listen|aloud/.test(question)) {
-      const text = scanVisibleText().filter((item) => item.type === 'TEXT').map((item) => item.text).join('. ').slice(0, 8000);
-      if (!text || !window.speechSynthesis) {
-        setAssistantResult('No readable text or speech synthesis is available.');
-        return;
-      }
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
-      setAssistantResult('Reading visible page text aloud.');
-    } else if (/screenshot|capture|screen shot/.test(question)) {
-      requestAssistantAction('assistant-capture');
-    } else {
-      setAssistantResult('I can summarize visible text, search its topic in Google News, open Google Translate, read it aloud, or capture a screenshot.');
-    }
-  }
-
-  makeAssistantButton('Summarize page', summarizePage);
-  makeAssistantButton('Latest news (Google)', () => {
-    const topic = (document.title || '').replace(/\s*[|–—-]\s*[^|–—-]+$/, '').trim().slice(0, 120);
-    requestAssistantAction('assistant-news', { topic: topic || location.hostname });
-  });
-  makeAssistantButton('Translate (Google)', () => requestAssistantAction('assistant-translate', { language: languageSelect.value }));
-  makeAssistantButton('Read aloud', () => {
-    const text = scanVisibleText().filter((item) => item.type === 'TEXT').map((item) => item.text).join('. ').slice(0, 8000);
-    if (!text || !window.speechSynthesis) {
-      setAssistantResult('No readable text or speech synthesis is available.');
-      return;
-    }
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
-    setAssistantResult('Reading visible page text aloud.');
-  });
-  makeAssistantButton('Stop reading', () => {
-    window.speechSynthesis?.cancel();
-    setAssistantResult('Reading stopped.');
-  });
-  makeAssistantButton('Screenshot', () => requestAssistantAction('assistant-capture'));
-  assistantClose.addEventListener('click', () => toggleAssistantWidget(false));
-  askButton.addEventListener('click', askAssistant);
-  assistantQuestion.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') askAssistant();
-  });
 
   function applySettings(settings) {
     state.paused = Boolean(settings.paused);
     state.disabledSites = Array.isArray(settings.disabledSites) ? settings.disabledSites : [];
     state.analysisEnabled = settings.analysisEnabled !== false;
-    if (state.paused || state.disabledSites.includes(location.hostname)) {
-      game.firing = false;
-      game.moveKeys = { up: false, down: false, left: false, right: false };
-    }
+    if (state.paused || state.disabledSites.includes(location.hostname)) game.firing = false;
     if (!state.analysisEnabled && avatar.mode === 'play') {
       avatar.mode = 'companion';
       game.targets = [];
@@ -278,56 +107,17 @@
     ctx?.setTransform(ratio, 0, 0, ratio, 0, 0);
   }
 
-  function drawAvatar(delta = 0) {
+  function drawAvatar() {
     if (!ctx) return;
-    const previousX = avatar.x;
-    const previousY = avatar.y;
     const size = 22 * avatar.scale;
-    let moving = false;
     if (avatar.mode === 'play') {
-      if (game.jumpFrom && game.jumpTo) {
-        const progress = Math.min(1, Math.max(0, (performance.now() - game.jumpStartedAt) / 1000));
-        const eased = progress * progress * (3 - 2 * progress);
-        avatar.x = game.jumpFrom.x + (game.jumpTo.x - game.jumpFrom.x) * eased;
-        avatar.y = game.jumpFrom.y + (game.jumpTo.y - game.jumpFrom.y) * eased;
-        moving = progress < 1;
-        if (progress >= 1) {
-          game.jumpFrom = null;
-          game.jumpTo = null;
-          game.jumpStartedAt = 0;
-        }
-      } else {
-        const horizontal = Number(game.moveKeys.right) - Number(game.moveKeys.left);
-        const vertical = Number(game.moveKeys.down) - Number(game.moveKeys.up);
-        const magnitude = Math.hypot(horizontal, vertical) || 1;
-        const moveX = horizontal / magnitude;
-        const moveY = vertical / magnitude;
-        avatar.x = Math.max(28, Math.min(window.innerWidth - 28, avatar.x + moveX * 360 * delta));
-        avatar.y = Math.max(28, Math.min(window.innerHeight - 28, avatar.y + moveY * 360 * delta));
-        moving = horizontal !== 0 || vertical !== 0;
-      }
-      if (Math.hypot(state.pointer.x - avatar.x, state.pointer.y - avatar.y) > 5) {
-        avatar.heading = Math.atan2(state.pointer.x - avatar.x, avatar.y - state.pointer.y);
-      }
+      avatar.x = Math.min(64, window.innerWidth * 0.2);
+      avatar.y = Math.max(64, window.innerHeight - 72);
     } else {
       avatar.vx *= 0.82;
       avatar.vy *= 0.82;
       avatar.x += (state.pointer.x - avatar.x) * 0.08 + avatar.vx;
       avatar.y += (state.pointer.y - avatar.y) * 0.08 + avatar.vy;
-    }
-    const travelX = avatar.x - previousX;
-    const travelY = avatar.y - previousY;
-    moving ||= Math.hypot(travelX, travelY) > 0.45;
-
-    if (character) {
-      character.update({
-        x: avatar.x,
-        y: avatar.y,
-        heading: avatar.heading,
-        moving,
-        scale: avatar.scale
-      });
-      if (character.ready) return;
     }
 
     ctx.save();
@@ -345,6 +135,34 @@
       case 'sphere':
         ctx.beginPath();
         ctx.arc(0, 0, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        break;
+      case 'cube':
+        ctx.fillRect(-size, -size, size * 2, size * 2);
+        ctx.strokeRect(-size, -size, size * 2, size * 2);
+        break;
+      case 'spaceship':
+        ctx.beginPath();
+        ctx.moveTo(0, -size * 1.3);
+        ctx.lineTo(size * 0.9, size);
+        ctx.lineTo(0, size * 0.7);
+        ctx.lineTo(-size * 0.9, size);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        break;
+      case 'robot':
+        ctx.fillRect(-size * 0.8, -size * 0.8, size * 1.6, size * 1.6);
+        ctx.strokeRect(-size * 0.8, -size * 0.8, size * 1.6, size * 1.6);
+        break;
+      case 'drone':
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        break;
+      case 'particle':
         for (let i = 0; i < 12; i += 1) {
           const angle = (Math.PI * 2 * i) / 12 + performance.now() / 900;
           const r = size * (0.8 + (i % 4) * 0.2);
@@ -365,30 +183,7 @@
   function drawTargetMask(target) {
     const bounds = target.bounds;
     ctx.fillStyle = target.coverColor || '#fff';
-    ctx.fillRect(bounds.x - 2, bounds.y - 2, bounds.w + 4, bounds.h + 4);
-  }
-
-  function mediaSize(element) {
-    if (element instanceof HTMLImageElement && element.complete && element.naturalWidth > 0) {
-      return { width: element.naturalWidth, height: element.naturalHeight };
-    }
-    if (element instanceof HTMLVideoElement && element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && element.videoWidth > 0) {
-      return { width: element.videoWidth, height: element.videoHeight };
-    }
-    if (element instanceof HTMLCanvasElement && element.width > 0 && element.height > 0) {
-      return { width: element.width, height: element.height };
-    }
-    return null;
-  }
-
-  function drawMediaSurface(element, bounds) {
-    if (!mediaSize(element)) return false;
-    try {
-      ctx.drawImage(element, bounds.x, bounds.y, bounds.w, bounds.h);
-      return true;
-    } catch {
-      return false;
-    }
+    ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
   }
 
   function drawTarget(target, now) {
@@ -414,25 +209,18 @@
       ctx.scale(scale, scale);
       ctx.translate(-(bounds.x + bounds.w / 2), -(bounds.y + bounds.h / 2));
     }
-    if (target.type === 'IMAGE') {
-      if (!drawMediaSurface(target.imageElement, bounds)) {
+    if (target.type === 'IMAGE' && target.imageElement?.complete && target.imageElement.naturalWidth > 0) {
+      try {
+        ctx.drawImage(target.imageElement, bounds.x, bounds.y, bounds.w, bounds.h);
+      } catch {
         ctx.fillStyle = target.coverColor || '#fff';
         ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
       }
-    } else if (target.type === 'FRAME') {
-      ctx.fillStyle = target.coverColor || 'rgba(12, 18, 28, 0.96)';
+    } else if (target.type === 'IMAGE') {
+      ctx.fillStyle = target.coverColor || '#fff';
       ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
-      ctx.strokeStyle = 'rgba(124, 243, 255, 0.72)';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(bounds.x + 1, bounds.y + 1, Math.max(0, bounds.w - 2), Math.max(0, bounds.h - 2));
-      ctx.fillStyle = '#d9f7ff';
-      ctx.font = '600 12px system-ui, sans-serif';
-      ctx.textBaseline = 'middle';
-      ctx.textAlign = 'center';
-      ctx.fillText(target.text || 'EMBEDDED PLAYER', bounds.x + bounds.w / 2, bounds.y + bounds.h / 2, Math.max(0, bounds.w - 16));
-      ctx.textAlign = 'start';
     }
-    if (target.type === 'TEXT') {
+    if (target.type !== 'IMAGE') {
       ctx.fillStyle = target.textColor || '#17212b';
       ctx.font = target.font || '12px system-ui, sans-serif';
       ctx.textBaseline = 'top';
@@ -467,7 +255,7 @@
     game.combo = now - game.lastHitAt < 1400 ? game.combo + 1 : 1;
     game.lastHitAt = now;
     game.score += LIVIACore.points(game.combo);
-    if (target.type !== 'TEXT') {
+    if (target.type === 'IMAGE') {
       game.glassShards.push(...LIVIACore.createGlassShards(target.bounds, 32).map((shard) => ({
         ...shard,
         bounds: target.bounds,
@@ -483,15 +271,8 @@
     }
     game.particles.push(...LIVIACore.createFragments(target.bounds, 10));
     if (game.particles.length > 160) game.particles.splice(0, game.particles.length - 160);
-    game.smoke.push(...LIVIACore.createSmoke(target.bounds, target.type !== 'TEXT' ? 14 : 9));
+    game.smoke.push(...LIVIACore.createSmoke(target.bounds, target.type === 'IMAGE' ? 14 : 9));
     if (game.smoke.length > 96) game.smoke.splice(0, game.smoke.length - 96);
-    game.tracers.push({
-      x1: target.bounds.x + target.bounds.w / 2,
-      y1: target.bounds.y + target.bounds.h / 2,
-      x2: target.bounds.x + target.bounds.w / 2 + (Math.random() - 0.5) * 14,
-      y2: target.bounds.y + target.bounds.h / 2 + (Math.random() - 0.5) * 14,
-      life: 0.12
-    });
 
     const clearPlan = LIVIACore.planSceneClear(game.targets, now);
     if (clearPlan) {
@@ -504,9 +285,6 @@
   }
 
   function updateGame(delta, now) {
-    game.screenFlash = Math.max(0, game.screenFlash - delta * 1.8);
-    game.screenShake = Math.max(0, game.screenShake * 0.86 - delta * 1.5);
-
     if (game.firing && now >= game.nextMachineShotAt) fireMachineGun(now);
 
     for (let index = game.projectiles.length - 1; index >= 0; index -= 1) {
@@ -598,15 +376,11 @@
   }
 
   function drawGame(now) {
-    ctx.save();
-
-    for (const target of game.targets) {
-      if (!LIVIACore.needsTargetMask(target)) continue;
-      drawTargetMask(target);
-      if (target.rebuildStartedAt) drawTarget(target, now);
-    }
+    for (const target of game.targets) drawTargetMask(target);
+    for (const target of game.targets) drawTarget(target, now);
     for (const puff of game.smoke) drawSmoke(puff);
 
+    ctx.save();
     ctx.fillStyle = avatar.color;
     ctx.shadowColor = avatar.color;
     ctx.shadowBlur = 10;
@@ -675,15 +449,7 @@
     ctx.font = '11px system-ui, sans-serif';
     ctx.fillStyle = '#d7e7f2';
     const remainingTargets = game.targets.reduce((remaining, target) => remaining + Number(!target.destroyed), 0);
-    const controlsHint = window.innerWidth < 620
-      ? 'WASD MOVE  SPACE HOP  MOUSE AIM/FIRE  Q ASSIST'
-      : 'WASD MOVE  SPACE HOP  MOUSE AIM  LMB FIRE  RMB/M MISSILE  Q ASSIST';
-    ctx.fillText(`TARGETS ${remainingTargets}/${game.totalTargets}  ${controlsHint}`, 16, 34);
-
-    if (game.screenFlash > 0.02) {
-      ctx.fillStyle = `rgba(255, 250, 220, ${Math.min(0.18, game.screenFlash)})`;
-      ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
-    }
+    ctx.fillText(`TARGETS  ${remainingTargets}/${game.totalTargets}     LMB / SPACE  FIRE     RMB / M  MISSILE`, 16, 34);
     ctx.restore();
 
     drawReticle();
@@ -691,21 +457,15 @@
 
   function drawClearScorecard(now) {
     ctx.save();
-    const width = Math.min(520, window.innerWidth - 32);
-    const height = 220;
+    const width = Math.min(440, window.innerWidth - 40);
+    const height = 196;
     const x = (window.innerWidth - width) / 2;
     const y = (window.innerHeight - height) / 2;
     const secondsRemaining = Math.max(0, Math.ceil((game.clearUntil - now) / 1000));
-    const wipeAlpha = Math.min(1, 0.72 + Math.sin(now / 180) * 0.08);
 
-    const bg = ctx.createRadialGradient(window.innerWidth / 2, window.innerHeight / 2, 40, window.innerWidth / 2, window.innerHeight / 2, Math.max(window.innerWidth, window.innerHeight) * 0.7);
-    bg.addColorStop(0, `rgba(17, 24, 37, ${0.42 + wipeAlpha * 0.38})`);
-    bg.addColorStop(0.5, 'rgba(4, 8, 15, 0.9)');
-    bg.addColorStop(1, 'rgba(1, 2, 4, 1)');
-    ctx.fillStyle = bg;
+    ctx.fillStyle = '#05070d';
     ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
-
-    ctx.fillStyle = 'rgba(5, 12, 18, 0.8)';
+    ctx.fillStyle = '#0a131e';
     ctx.strokeStyle = '#7cf3ff';
     ctx.lineWidth = 1.5;
     ctx.shadowColor = '#7cf3ff';
@@ -716,18 +476,15 @@
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#7cf3ff';
-    ctx.font = '700 18px system-ui, sans-serif';
-    ctx.fillText('SCREEN WIPED', window.innerWidth / 2, y + 38);
-    ctx.fillStyle = '#dfefff';
-    ctx.font = '700 38px system-ui, sans-serif';
-    ctx.fillText(`${game.clearSeconds.toFixed(2)} s`, window.innerWidth / 2, y + 94);
+    ctx.font = '700 19px system-ui, sans-serif';
+    ctx.fillText('SCREEN CLEARED', window.innerWidth / 2, y + 42);
     ctx.fillStyle = '#f3f7fb';
     ctx.font = '600 15px system-ui, sans-serif';
-    ctx.fillText(`CLEAR TIME`, window.innerWidth / 2, y + 124);
-    ctx.fillText(`SCORE  ${game.score}`, window.innerWidth / 2, y + 154);
+    ctx.fillText(`CLEAR TIME  ${game.clearSeconds.toFixed(2)} s`, window.innerWidth / 2, y + 90);
+    ctx.fillText(`SCORE  ${game.score}`, window.innerWidth / 2, y + 120);
     ctx.fillStyle = '#93a8b7';
     ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText(`NEXT SCENE IN ${secondsRemaining}s`, window.innerWidth / 2, y + 188);
+    ctx.fillText(`NEXT SCENE IN ${secondsRemaining}s`, window.innerWidth / 2, y + 160);
     ctx.textAlign = 'start';
     ctx.restore();
   }
@@ -760,7 +517,14 @@
     ctx.closePath();
     ctx.save();
     ctx.clip();
-    if (!drawMediaSurface(shard.imageElement, shard.bounds)) {
+    if (shard.imageElement?.complete && shard.imageElement.naturalWidth > 0) {
+      try {
+        ctx.drawImage(shard.imageElement, shard.bounds.x, shard.bounds.y, shard.bounds.w, shard.bounds.h);
+      } catch {
+        ctx.fillStyle = 'rgba(145, 226, 255, 0.5)';
+        ctx.fill();
+      }
+    } else {
       ctx.fillStyle = 'rgba(145, 226, 255, 0.5)';
       ctx.fill();
     }
@@ -832,7 +596,7 @@
     const velocity = LIVIACore.aim(avatar, targetPoint, speed, { x: 1, y: 0 });
     const angle = Math.atan2(velocity.vy, velocity.vx) + (Math.random() - 0.5) * 0.025;
     const distance = Math.max(18, Math.hypot(targetPoint.x - avatar.x, targetPoint.y - avatar.y));
-    const bullet = {
+    game.projectiles.push({
       kind: 'bullet',
       x: avatar.x,
       y: avatar.y,
@@ -841,25 +605,12 @@
       life: 1.35,
       range: distance,
       distanceTravelled: 0
-    };
-    game.projectiles.push(bullet);
+    });
     if (game.projectiles.filter((projectile) => projectile.kind === 'bullet').length > 84) {
       const oldest = game.projectiles.findIndex((projectile) => projectile.kind === 'bullet');
       if (oldest >= 0) game.projectiles.splice(oldest, 1);
     }
-    const muzzleX = avatar.x + Math.cos(angle) * 18;
-    const muzzleY = avatar.y + Math.sin(angle) * 18;
-    game.tracers.push({
-      x1: muzzleX,
-      y1: muzzleY,
-      x2: muzzleX + Math.cos(angle) * 54,
-      y2: muzzleY + Math.sin(angle) * 54,
-      life: 0.1
-    });
-    game.particles.push(...LIVIACore.createFragments({ x: muzzleX - 10, y: muzzleY - 10, w: 20, h: 20 }, 4));
     game.nextMachineShotAt = now + 72;
-    game.screenFlash = Math.min(1, game.screenFlash + 0.18);
-    game.screenShake = Math.min(20, game.screenShake + 3.8);
     playWeaponSound('gun');
   }
 
@@ -873,7 +624,7 @@
     const origin = Math.hypot(targetPoint.x - avatar.x, targetPoint.y - avatar.y) < 36
       ? { x: targetPoint.x - velocity.vx / speed * 54, y: targetPoint.y - velocity.vy / speed * 54 }
       : { x: avatar.x, y: avatar.y };
-    const missile = {
+    game.projectiles.push({
       kind: 'missile',
       x: origin.x,
       y: origin.y,
@@ -882,20 +633,9 @@
       target,
       targetPoint,
       life: 2.2
-    };
-    game.projectiles.push(missile);
+    });
     const missiles = game.projectiles.filter((projectile) => projectile.kind === 'missile');
     if (missiles.length > 12) game.projectiles.splice(game.projectiles.indexOf(missiles[0]), 1);
-    game.tracers.push({
-      x1: origin.x,
-      y1: origin.y,
-      x2: origin.x + velocity.vx * 0.12,
-      y2: origin.y + velocity.vy * 0.12,
-      life: 0.18
-    });
-    game.screenFlash = Math.min(1, game.screenFlash + 0.22);
-    game.screenShake = Math.min(26, game.screenShake + 5.4);
-    character?.jump();
     playWeaponSound('missile');
   }
 
@@ -912,251 +652,6 @@
     for (const target of game.targets) {
       if (target.destroyed) target.rebuildStartedAt = now;
     }
-  }
-
-  function buildPageScene(maxNodes = 250) {
-    sceneGeneration += 1;
-    sceneElementById.clear();
-    const roots = [document.body || document.documentElement];
-    const visitedRoots = new Set(roots);
-    for (let rootIndex = 0; rootIndex < roots.length && roots.length < 64; rootIndex += 1) {
-      for (const element of roots[rootIndex].querySelectorAll('*')) {
-        if (element.shadowRoot && !visitedRoots.has(element.shadowRoot)) {
-          roots.push(element.shadowRoot);
-          visitedRoots.add(element.shadowRoot);
-          if (roots.length >= 64) break;
-        }
-      }
-    }
-
-    const nodes = [];
-    const ids = new WeakMap();
-    const pageId = 'page';
-    const pageRect = { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
-    nodes.push({ id: pageId, type: 'PAGE', parentId: null, children: [], text: document.title, bounds: pageRect, visible: true, source: 'dom', confidence: 1 });
-    ids.set(document.body || document.documentElement, pageId);
-
-    function classify(element, role) {
-      const tag = element.tagName.toLowerCase();
-      if (role === 'dialog' || tag === 'dialog') return 'DIALOG';
-      if (role === 'menu' || tag === 'menu') return 'MENU';
-      if (tag === 'nav' || role === 'navigation') return 'NAVIGATION';
-      if (tag === 'table' || role === 'table' || role === 'grid') return 'TABLE';
-      if (tag === 'form' || role === 'form') return 'FORM';
-      if (tag === 'button' || role === 'button') return 'BUTTON';
-      if (tag === 'a' || role === 'link') return 'LINK';
-      if (tag === 'img' || tag === 'picture' || tag === 'canvas' || role === 'img') return 'IMAGE';
-      if (tag === 'video') return 'VIDEO';
-      if (tag === 'iframe') return 'FRAME';
-      if (tag === 'input') return ['checkbox', 'radio', 'range'].includes(element.type) ? 'INPUT' : null;
-      if (tag === 'article' || ['article', 'listitem'].includes(role) || /\b(card|tile)\b/i.test(element.className || '')) return 'CARD';
-      if (/^(h[1-6]|p|li|dt|dd|blockquote|figcaption)$/.test(tag) || ['heading', 'paragraph', 'note'].includes(role)) return 'TEXT';
-      if (/^(main|section|header|footer|aside)$/.test(tag) || ['main', 'region', 'complementary'].includes(role)) return 'SECTION';
-      if (tag === 'svg' || role === 'icon') return 'ICON';
-      return null;
-    }
-
-    for (const root of roots) {
-      for (const element of root.querySelectorAll('*')) {
-        if (nodes.length >= maxNodes) break;
-        if (!(element instanceof HTMLElement || element instanceof SVGElement)) continue;
-        if (element.closest?.('#livia-companion, [hidden], [inert], [data-livia-ignore]')) continue;
-        const role = (element.getAttribute('role') || '').toLowerCase();
-        const type = classify(element, role);
-        if (!type) continue;
-        if (element.closest?.('[contenteditable="true"], [role="textbox"], input[type="password"], textarea, [autocomplete="current-password"], [autocomplete="new-password"]')) continue;
-        if (element.closest?.('form') && !['BUTTON', 'LINK', 'INPUT'].includes(type)) continue;
-        if (!['BUTTON', 'LINK', 'INPUT'].includes(type) && LIVIACore.isSensitive(element)) continue;
-        if (element instanceof HTMLInputElement && !['checkbox', 'radio', 'range'].includes(element.type)) continue;
-        if (element instanceof HTMLFormElement) continue;
-
-        const style = window.getComputedStyle(element);
-        const rect = element.getBoundingClientRect();
-        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05 || rect.width < 1 || rect.height < 1 || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) continue;
-
-        const active = element === document.activeElement;
-        const accessibleLabel = element.getAttribute('aria-label') || element.getAttribute('alt') || element.getAttribute('title') || '';
-        const text = type === 'INPUT' ? accessibleLabel : accessibleLabel || (type === 'TEXT' ? element.innerText || element.textContent || '' : element.innerText || '');
-        let parentElement = element.parentElement || element.getRootNode?.().host || null;
-        while (parentElement && !ids.has(parentElement)) {
-          parentElement = parentElement.parentElement || parentElement.getRootNode?.().host || null;
-        }
-        const parentId = parentElement ? ids.get(parentElement) || pageId : pageId;
-
-        const id = `scene-${sceneGeneration}-${nodes.length}`;
-        const ariaSource = Boolean(role || accessibleLabel);
-        const node = {
-          id,
-          type,
-          parentId,
-          children: [],
-          ...(text ? { text: String(text).replace(/\s+/g, ' ').trim().slice(0, 400) } : {}),
-          ...(role ? { semanticRole: role } : {}),
-          bounds: { x: Math.max(0, rect.left), y: Math.max(0, rect.top), w: Math.min(rect.right, window.innerWidth) - Math.max(0, rect.left), h: Math.min(rect.bottom, window.innerHeight) - Math.max(0, rect.top) },
-          visible: true,
-          interactive: ['BUTTON', 'LINK', 'INPUT'].includes(type) || element.tabIndex >= 0,
-          selected: element.getAttribute('aria-selected') === 'true' || element.getAttribute('aria-pressed') === 'true',
-          focused: active,
-          color: style.color,
-          style: { font: style.font, backgroundColor: style.backgroundColor, display: style.display },
-          source: ariaSource ? 'aria' : 'dom',
-          confidence: ariaSource ? 0.95 : 0.82
-        };
-        nodes.push(node);
-        ids.set(element, id);
-        sceneElementById.set(id, element);
-        const parent = nodes.find((candidate) => candidate.id === parentId);
-        if (parent) parent.children.push(id);
-      }
-    }
-
-    const url = `${location.origin}${location.pathname}`;
-    return LIVIACore.createSceneGraph({
-      page: { url, title: document.title },
-      viewport: { width: window.innerWidth, height: window.innerHeight, scrollX: window.scrollX, scrollY: window.scrollY },
-      nodes,
-      timestamp: Date.now()
-    });
-  }
-
-  function saveCurrentPageMemory(sendResponse) {
-    if (!state.analysisEnabled) {
-      sendResponse({ ok: false, error: 'Enable page analysis to remember this page.' });
-      return false;
-    }
-    if (!self.LIVIAMemory) {
-      sendResponse({ ok: false, error: 'Local memory is unavailable. Reload the extension and page.' });
-      return false;
-    }
-    const memory = self.LIVIAMemory.createPageMemory(buildPageScene(250));
-    if (!memory) {
-      sendResponse({ ok: false, error: 'This page has no safe title or URL to remember.' });
-      return false;
-    }
-    chrome.storage.local.get('pageMemories', (result) => {
-      const memories = self.LIVIAMemory.upsertMemory(result.pageMemories, memory);
-      chrome.storage.local.set({ pageMemories: memories }, () => {
-        const error = chrome.runtime.lastError;
-        if (error) sendResponse({ ok: false, error: 'Could not save local memory.' });
-        else sendResponse({ ok: true, memory: { title: memory.title, url: memory.url, timestamp: memory.timestamp } });
-      });
-    });
-    return true;
-  }
-
-  function storePageMemory(request, sendResponse) {
-    if (!state.analysisEnabled) {
-      sendResponse({ ok: false, error: 'Enable page analysis to remember this page.' });
-      return false;
-    }
-    if (!self.LIVIAMemory?.validPageMemory(request.memory)) {
-      sendResponse({ ok: false, error: 'Invalid local page-memory record.' });
-      return false;
-    }
-    const memory = { ...request.memory };
-    const embedding = self.LIVIAMemory.cleanEmbedding(request.embedding);
-    if (embedding) memory.embedding = embedding;
-    else delete memory.embedding;
-    chrome.storage.local.get('pageMemories', (result) => {
-      const memories = self.LIVIAMemory.upsertMemory(result.pageMemories, memory);
-      chrome.storage.local.set({ pageMemories: memories }, () => {
-        const error = chrome.runtime.lastError;
-        if (error) sendResponse({ ok: false, error: 'Could not save local memory.' });
-        else sendResponse({ ok: true, memory: { title: memory.title, url: memory.url, timestamp: memory.timestamp, embedded: Boolean(embedding) } });
-      });
-    });
-    return true;
-  }
-
-  function searchPageMemory(request, sendResponse) {
-    if (!self.LIVIAMemory?.validMemorySearchRequest(request)) {
-      sendResponse({ ok: false, error: 'Enter a search query of 1 to 160 characters.' });
-      return false;
-    }
-    chrome.storage.local.get('pageMemories', (result) => {
-      const results = self.LIVIAMemory.rankMemories(request.query, result.pageMemories || [], request.limit || 5, request.embedding);
-      sendResponse({ ok: true, results });
-    });
-    return true;
-  }
-
-  function getSceneActionTarget(id) {
-    const element = sceneElementById.get(id);
-    if (!(element instanceof HTMLElement) || !element.isConnected || element.closest('form, [contenteditable="true"], [role="textbox"], [hidden], [inert], [aria-hidden="true"]')) return null;
-    const style = window.getComputedStyle(element);
-    const bounds = element.getBoundingClientRect();
-    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05 || bounds.width < 1 || bounds.height < 1 || bounds.right <= 0 || bounds.bottom <= 0 || bounds.left >= window.innerWidth || bounds.top >= window.innerHeight) return null;
-    return element;
-  }
-
-  function actionClickIsAllowed(element) {
-    return LIVIACore.canActivateSceneElement({
-      tagName: element.tagName,
-      role: element.getAttribute('role'),
-      disabled: element.disabled === true || element.getAttribute('aria-disabled') === 'true',
-      insideForm: Boolean(element.closest('form')),
-      ariaHidden: element.getAttribute('aria-hidden') === 'true',
-      buttonType: element instanceof HTMLButtonElement ? element.type : '',
-      download: element instanceof HTMLAnchorElement && element.hasAttribute('download'),
-      target: element instanceof HTMLAnchorElement ? element.target : '',
-      href: element instanceof HTMLAnchorElement ? element.href : '',
-      origin: location.origin
-    });
-  }
-
-  function handleSceneAction(request, sendResponse) {
-    if (!LIVIACore.validElementActionRequest(request)) {
-      sendResponse({ ok: false, error: 'Invalid browser-action request.' });
-      return false;
-    }
-    const element = getSceneActionTarget(request.id);
-    if (!element) {
-      sendResponse({ ok: false, error: 'That scene target is stale or no longer visible. Find it again.' });
-      return false;
-    }
-    if (request.type === 'scroll-element') {
-      element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-      window.setTimeout(() => {
-        const bounds = element.getBoundingClientRect();
-        const verified = bounds.width > 0 && bounds.height > 0 && bounds.bottom > 0 && bounds.right > 0 && bounds.top < window.innerHeight && bounds.left < window.innerWidth;
-        sendResponse({ ok: verified, verified, error: verified ? undefined : 'Scroll target could not be brought into the viewport.' });
-      }, 550);
-      return true;
-    }
-    if (!actionClickIsAllowed(element)) {
-      sendResponse({ ok: false, error: 'For safety, LIVIA cannot activate form controls, external links, downloads, or new-tab links.' });
-      return false;
-    }
-
-    const before = {
-      url: location.href,
-      text: element.textContent,
-      pressed: element.getAttribute('aria-pressed'),
-      expanded: element.getAttribute('aria-expanded')
-    };
-    let changed = false;
-    const observedRoot = element.getRootNode();
-    const observer = new MutationObserver(() => { changed = true; });
-    observer.observe(observedRoot, { subtree: true, childList: true, attributes: true, characterData: true });
-    try {
-      element.click();
-    } catch {
-      observer.disconnect();
-      sendResponse({ ok: false, error: 'The target rejected the click.' });
-      return false;
-    }
-    window.setTimeout(() => {
-      observer.disconnect();
-      const verified = LIVIACore.verifyElementAction(before, {
-        url: location.href,
-        text: element.textContent,
-        pressed: element.getAttribute('aria-pressed'),
-        expanded: element.getAttribute('aria-expanded'),
-        focused: document.activeElement === element
-      }, changed);
-      sendResponse({ ok: verified, verified, error: verified ? undefined : 'Click was sent, but LIVIA could not verify a page change. Check before retrying.' });
-    }, 650);
-    return true;
   }
 
   function animate() {
@@ -1179,8 +674,6 @@
           game.textDebris = [];
           game.glassShards = [];
           game.tracers = [];
-          game.screenFlash = 1;
-          game.screenShake = 18;
         }
         if (game.clearUntil && now >= game.clearUntil) {
           game.clearUntil = 0;
@@ -1190,16 +683,15 @@
           game.totalTargets = 0;
         }
         if (game.clearUntil && !game.clearPendingAt && now < game.clearUntil) {
-          character?.update({ x: avatar.x, y: avatar.y, heading: 0, moving: false, scale: avatar.scale });
           drawClearScorecard(now);
           frameId = requestAnimationFrame(animate);
           return;
         }
         updateGame(delta, now);
-        drawAvatar(delta);
+        drawAvatar();
         drawGame(now);
       } else {
-        drawAvatar(delta);
+        drawAvatar();
       }
     } else {
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
@@ -1211,42 +703,7 @@
     if (!state.analysisEnabled) return [];
     const items = [];
     const maxTargets = 2400;
-    const ignored = 'form, input, textarea, select, button, [contenteditable="true"], [role="textbox"], [data-livia-ignore], script, style, noscript, svg, #livia-companion';
-
-    function collectOpenRoots(root) {
-      const roots = [root];
-      const visited = new Set(roots);
-      for (let index = 0; index < roots.length && roots.length < 128; index += 1) {
-        for (const element of roots[index].querySelectorAll('*')) {
-          if (element.shadowRoot && !visited.has(element.shadowRoot)) {
-            roots.push(element.shadowRoot);
-            visited.add(element.shadowRoot);
-            if (roots.length >= 128) break;
-          }
-        }
-      }
-      return roots;
-    }
-
-    function isIgnored(element, includeAriaHidden = true) {
-      let current = element;
-      while (current) {
-        if (current.matches?.(ignored) || current.matches?.('[hidden], [inert]') || (includeAriaHidden && current.matches?.('[aria-hidden="true"]'))) return true;
-        current = current.parentElement || current.getRootNode?.().host || null;
-      }
-      return false;
-    }
-
-    const roots = collectOpenRoots(document.body || document.documentElement || document);
-
-    function isNonInteractiveSurface(element, allowAriaHidden = false) {
-      if (!(element instanceof Element)) return false;
-      if (element.closest?.('button, input, textarea, select, summary, [role="button"], [role="textbox"]')) return true;
-      const excluded = allowAriaHidden
-        ? '[hidden], [inert], [data-livia-ignore]'
-        : '[hidden], [inert], [aria-hidden="true"], [data-livia-ignore]';
-      return Boolean(element.closest?.(excluded));
-    }
+    const ignored = 'form, input, textarea, select, button, [contenteditable="true"], [role="textbox"], [aria-hidden="true"], [data-livia-ignore], script, style, noscript, svg, #livia-companion';
 
     function getCoverColor(element) {
       let current = element;
@@ -1255,74 +712,41 @@
         if (color && color !== 'transparent') {
           if (!color.startsWith('rgba(') || Number(color.slice(5, -1).split(',')[3]) >= 0.95) return color;
         }
-        current = current.parentElement || current.getRootNode?.().host || null;
+        current = current.parentElement;
       }
       return '#fff';
     }
 
-    function visibleStyle(element, isMedia = false) {
-      if (!(element instanceof Element) || isSensitive(element) || isIgnored(element, !isMedia) || isNonInteractiveSurface(element, isMedia)) return null;
-      if (element.hidden || element.closest?.('[hidden], [inert]') || (!isMedia && element.closest?.('[aria-hidden="true"]'))) return null;
+    function visibleStyle(element) {
+      if (!(element instanceof HTMLElement) || isSensitive(element) || element.closest(ignored)) return null;
       const style = window.getComputedStyle(element);
       if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05) return null;
-      const rect = element.getBoundingClientRect();
-      if (!rect.width || !rect.height || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) return null;
       return style;
     }
 
-    function addVisualTarget(element, fallbackFrame = false) {
-      if (items.length >= 320 || !visibleStyle(element, true)) return;
-      const rect = element.getBoundingClientRect();
-      const isFrame = fallbackFrame || element instanceof HTMLIFrameElement;
-      const minimumSize = isFrame ? 64 : 28;
-      if (rect.width < minimumSize || rect.height < minimumSize || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) return;
-
-      let current = element;
-      while (current) {
-        if (LIVIACore.isPrimaryViewportCandidate(current, current.getBoundingClientRect(), window.innerWidth, window.innerHeight)) return;
-        current = current.parentElement || current.getRootNode?.().host || null;
-      }
-
-      if (fallbackFrame) {
-        const area = Math.max(1, rect.width * rect.height);
-        const alreadyCovered = items.some((target) => {
-          if (target.type === 'TEXT') return false;
-          const overlapWidth = Math.max(0, Math.min(rect.right, target.bounds.x + target.bounds.w) - Math.max(rect.left, target.bounds.x));
-          const overlapHeight = Math.max(0, Math.min(rect.bottom, target.bounds.y + target.bounds.h) - Math.max(rect.top, target.bounds.y));
-          return overlapWidth * overlapHeight / area > 0.78;
-        });
-        if (alreadyCovered) return;
-      } else if (!isFrame && !(element instanceof HTMLVideoElement) && !mediaSize(element)) {
-        return;
-      }
+    const images = document.body.querySelectorAll('img');
+    for (const image of images) {
+      if (items.length >= 180) break;
+      if (!image.complete || !image.naturalWidth || !visibleStyle(image)) continue;
+      const rect = image.getBoundingClientRect();
+      if (rect.width < 24 || rect.height < 18 || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) continue;
+      const style = window.getComputedStyle(image);
       const x = Math.max(0, rect.left);
       const y = Math.max(0, rect.top);
-      const label = element.getAttribute('title') || element.getAttribute('aria-label') || (element instanceof HTMLVideoElement ? 'VIDEO TARGET' : element instanceof HTMLCanvasElement ? 'CANVAS TARGET' : isFrame ? 'EMBEDDED PLAYER' : 'IMAGE TARGET');
       items.push({
-        id: element.id || `visual-${items.length}`,
-        type: isFrame ? 'FRAME' : 'IMAGE',
-        text: element instanceof HTMLImageElement ? element.getAttribute('alt') || label : label,
-        coverColor: getCoverColor(element),
-        imageElement: isFrame ? null : element,
+        id: image.id || `image-${items.length}`,
+        type: 'IMAGE',
+        text: image.getAttribute('alt') || image.getAttribute('title') || 'IMAGE TARGET',
+        coverColor: getCoverColor(image),
+        imageElement: image,
         bounds: { x, y, w: Math.min(rect.right, window.innerWidth) - x, h: Math.min(rect.bottom, window.innerHeight) - y }
       });
     }
 
-    const visualSelector = 'img, video, canvas';
-    for (const root of roots) {
-      for (const element of root.querySelectorAll(visualSelector)) addVisualTarget(element);
-    }
-    for (const element of document.querySelectorAll(visualSelector)) addVisualTarget(element);
-
-    const textNodes = [];
-    for (const root of roots) {
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      let textNode;
-      while ((textNode = walker.nextNode())) textNodes.push(textNode);
-    }
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let textNode;
     let scannedWords = 0;
-    for (const textNode of textNodes) {
-      if (items.length >= maxTargets || scannedWords >= 18_000) break;
+    while (items.length < maxTargets && (textNode = walker.nextNode())) {
       const element = textNode.parentElement;
       const style = element && visibleStyle(element);
       const value = textNode.nodeValue || '';
@@ -1379,39 +803,7 @@
     state.pointer.y = event.clientY;
   }
 
-  function jumpToNextTarget() {
-    if (!game.targets.length) {
-      character?.jump();
-      return;
-    }
-    for (let offset = 1; offset <= game.targets.length; offset += 1) {
-      const index = (game.jumpIndex + offset) % game.targets.length;
-      const target = game.targets[index];
-      if (target.destroyed) continue;
-      game.jumpIndex = index;
-      const centerX = target.bounds.x + target.bounds.w / 2;
-      const centerY = target.bounds.y + target.bounds.h / 2;
-      const directionX = centerX - avatar.x;
-      const directionY = centerY - avatar.y;
-      const distance = Math.hypot(directionX, directionY) || 1;
-      const unitX = directionX / distance;
-      const unitY = directionY / distance;
-      const edgeDistance = Math.abs(unitX) * target.bounds.w / 2 + Math.abs(unitY) * target.bounds.h / 2;
-      const landingDistance = edgeDistance + 68;
-      game.jumpFrom = { x: avatar.x, y: avatar.y };
-      game.jumpTo = {
-        x: Math.max(32, Math.min(window.innerWidth - 32, centerX - unitX * landingDistance)),
-        y: Math.max(32, Math.min(window.innerHeight - 32, centerY - unitY * landingDistance))
-      };
-      game.jumpStartedAt = performance.now();
-      character?.jump();
-      return;
-    }
-    character?.jump();
-  }
-
   function onPointerDown(event) {
-    if (assistantWidget.contains(event.target)) return;
     if (avatar.mode !== 'play' || !shouldOperate()) return;
     if (event.button !== 0 && event.button !== 2) return;
     event.preventDefault();
@@ -1427,7 +819,6 @@
   }
 
   function onPointerUp(event) {
-    if (assistantWidget.contains(event.target)) return;
     if (avatar.mode === 'play' && shouldOperate() && (event.button === 0 || event.button === 2)) {
       event.preventDefault();
       event.stopPropagation();
@@ -1436,7 +827,6 @@
   }
 
   function onContextMenu(event) {
-    if (assistantWidget.contains(event.target)) return;
     if (avatar.mode === 'play' && shouldOperate()) {
       event.preventDefault();
       event.stopPropagation();
@@ -1444,27 +834,14 @@
   }
 
   function onKeyDown(event) {
+    if (avatar.mode !== 'play' || !shouldOperate() || event.repeat) return;
     const target = event.target;
     if (target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
-    if (assistantWidget.contains(target)) return;
-    if (event.code === 'KeyQ' && !event.repeat) {
-      event.preventDefault();
-      event.stopPropagation();
-      toggleAssistantWidget();
-      return;
-    }
-    if (avatar.mode !== 'play' || !shouldOperate() || event.repeat) return;
-    const movementKeys = { KeyW: 'up', KeyS: 'down', KeyA: 'left', KeyD: 'right' };
-    if (movementKeys[event.code]) {
-      event.preventDefault();
-      event.stopPropagation();
-      game.moveKeys[movementKeys[event.code]] = true;
-      return;
-    }
     if (event.code === 'Space') {
       event.preventDefault();
       event.stopPropagation();
-      jumpToNextTarget();
+      game.firing = true;
+      fireMachineGun();
     } else if (event.code === 'KeyM') {
       event.preventDefault();
       event.stopPropagation();
@@ -1473,54 +850,58 @@
   }
 
   function onKeyUp(event) {
-    const movementKeys = { KeyW: 'up', KeyS: 'down', KeyA: 'left', KeyD: 'right' };
-    if (movementKeys[event.code]) game.moveKeys[movementKeys[event.code]] = false;
+    if (event.code === 'Space') game.firing = false;
   }
 
   function handleMessage(request, sender, sendResponse) {
     if (!request || typeof request !== 'object') return false;
     if (sender?.id && sender.id !== chrome.runtime.id) return false;
-    if (request.type === 'remember-page') {
-      if (!self.LIVIAMemory?.validRememberRequest(request)) {
-        sendResponse({ ok: false, error: 'Invalid page-memory request.' });
-        return false;
-      }
-      if (request.memory) return storePageMemory(request, sendResponse);
-      return saveCurrentPageMemory(sendResponse);
-    }
-    if (request.type === 'search-memory') return searchPageMemory(request, sendResponse);
-    if (request.type === 'get-scene') {
-      if (!LIVIACore.validSceneRequest(request)) {
-        sendResponse({ ok: false, error: 'Invalid scene request.' });
-        return false;
-      }
-      if (!state.analysisEnabled) {
-        sendResponse({ ok: false, error: 'Enable page analysis to inspect this page.' });
-        return false;
-      }
-      sendResponse({ ok: true, scene: buildPageScene(request.maxNodes || 250) });
-      return false;
-    }
-    if (request.type === 'find-element') {
-      if (!LIVIACore.validFindElementRequest(request)) {
-        sendResponse({ ok: false, error: 'Invalid element-finding request.' });
-        return false;
-      }
-      if (!state.analysisEnabled) {
-        sendResponse({ ok: false, error: 'Enable page analysis to find visible elements.' });
-        return false;
-      }
-      const scene = buildPageScene(500);
-      sendResponse({ ok: true, results: LIVIACore.findSceneElements(scene, request.query, request.limit || 3) });
-      return false;
-    }
-    if (request.type === 'scroll-element' || request.type === 'click-element') return handleSceneAction(request, sendResponse);
     if (request.type === 'sync') {
       chrome.storage.local.get(['settings', 'avatar'], (result) => {
         applySettings(result.settings || {});
         applyAvatar(result.avatar);
         sendResponse({ ok: true, state: { form: avatar.form, scale: avatar.scale, color: avatar.color } });
       });
+      return true;
+    }
+
+    if (request.type === 'ask') {
+      if (typeof request.text !== 'string' || !request.text.trim() || request.text.length > 300) {
+        sendResponse({ ok: false, error: 'Questions must be 1 to 300 characters.' });
+        return true;
+      }
+      if (!state.analysisEnabled) {
+        sendResponse({ ok: false, error: 'Enable page analysis so LIVIA can read this page.' });
+        return true;
+      }
+      if (!Rag || !PageMarkdown) {
+        sendResponse({ ok: false, error: 'Page knowledge engine is not loaded. Reload the page.' });
+        return true;
+      }
+      try {
+        const page = PageMarkdown.toMarkdown(document, { isSensitive });
+        const key = `${location.href}|${page.markdown.length}|${page.markdown.slice(0, 64)}|${page.markdown.slice(-64)}`;
+        if (ragCache.key !== key) {
+          ragCache.index = Rag.buildIndex(page.markdown, { title: page.title, url: location.href });
+          ragCache.key = key;
+        }
+        const found = Rag.search(ragCache.index, request.text);
+        sendResponse({
+          ok: true,
+          confident: found.confident,
+          reason: found.reason,
+          sections: ragCache.index.parents.length,
+          chunks: ragCache.index.children.length,
+          results: found.results.map((r) => ({
+            path: r.path,
+            snippet: r.snippet.slice(0, 600),
+            context: r.context.slice(0, 1400),
+            score: r.score
+          }))
+        });
+      } catch (error) {
+        sendResponse({ ok: false, error: `Could not read this page: ${error instanceof Error ? error.message : String(error)}` });
+      }
       return true;
     }
 
@@ -1539,8 +920,6 @@
         return true;
       }
 
-      if (action.action === 'remember') return saveCurrentPageMemory(sendResponse);
-
       if (action.action === 'transform') avatar.form = action.form;
       if (action.action === 'scale') avatar.scale = action.value;
       if (action.action === 'game') {
@@ -1552,13 +931,11 @@
         game.clearPendingAt = 0;
         game.clearUntil = 0;
         if (action.on) {
+          avatar.x = Math.min(64, window.innerWidth * 0.2);
+          avatar.y = Math.max(64, window.innerHeight - 72);
           game.score = 0;
           game.combo = 0;
           game.clearSeconds = 0;
-          game.moveKeys = { up: false, down: false, left: false, right: false };
-          game.jumpFrom = null;
-          game.jumpTo = null;
-          game.jumpIndex = -1;
           game.startedAt = performance.now();
           game.projectiles = [];
           game.particles = [];
@@ -1566,9 +943,6 @@
           game.textDebris = [];
           game.glassShards = [];
           refreshTargets();
-          game.jumpIndex = -1;
-          game.jumpFrom = null;
-          game.jumpTo = null;
           if (!game.targets.length) {
             avatar.mode = 'companion';
             game.startedAt = 0;
@@ -1579,9 +953,6 @@
           game.totalTargets = game.targets.length;
         } else {
           game.targets = [];
-          game.jumpFrom = null;
-          game.jumpTo = null;
-          game.moveKeys = { up: false, down: false, left: false, right: false };
           game.projectiles = [];
           game.particles = [];
           game.textDebris = [];
@@ -1620,18 +991,12 @@
   document.addEventListener('contextmenu', onContextMenu, true);
   document.addEventListener('keydown', onKeyDown);
   document.addEventListener('keyup', onKeyUp);
-  window.addEventListener('blur', () => {
-    game.firing = false;
-    game.moveKeys = { up: false, down: false, left: false, right: false };
-  });
-  window.addEventListener('resize', () => {
-    resizeCanvas();
-    if (avatar.mode === 'play') refreshTargets();
-  });
+  window.addEventListener('blur', () => { game.firing = false; });
+  window.addEventListener('resize', resizeCanvas);
   window.addEventListener('scroll', () => {
     if (avatar.mode !== 'play') return;
     window.clearTimeout(scanTimer);
-    scanTimer = window.setTimeout(refreshTargets, 40);
+    scanTimer = window.setTimeout(refreshTargets, 180);
   }, { passive: true });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {

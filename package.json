@@ -23,7 +23,7 @@
     "test:agent": "npm --workspace apps/agent run test",
     "test:intelligence": "npm --workspace apps/intelligence run test",
     "check:intelligence": "node --check apps/intelligence/server.mjs && node --check apps/intelligence/crawler.mjs && node --check apps/intelligence/migrate.mjs",
-    "check:extension": "node --check apps/extension/core.js && node --check apps/extension/content.js && node --check apps/extension/background.js && node --check apps/extension/popup.js",
+    "check:extension": "node --check apps/extension/core.js && node --check apps/extension/rag.js && node --check apps/extension/page-markdown.js && node --check apps/extension/content.js && node --check apps/extension/background.js && node --check apps/extension/popup.js",
     "validate": "npm run typecheck:web && npm run lint:web && npm run test:web && npm run test:extension && npm run test:agent && npm run test:intelligence && npm run check:extension && npm run check:intelligence && npm run build:extension && npm run build:web"
   },
   "devDependencies": {
