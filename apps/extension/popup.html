@@ -78,6 +78,13 @@
       <button id="agent-vision" disabled>Analyze screenshot locally</button>
       <pre id="vision-response" class="memory-report" aria-live="polite" aria-hidden="true"></pre>
     </details>
+    <details>
+      <summary>Advanced AI provider</summary>
+      <p class="note">The key is sent only to your authenticated local agent over loopback, verified against the provider model catalog, and kept in agent memory only. Restarting the agent removes it.</p>
+      <input id="provider-key" type="password" autocomplete="off" placeholder="External provider API key" aria-label="External provider API key" />
+      <button id="provider-connect">Verify provider key</button>
+      <pre id="provider-models" class="memory-report" aria-live="polite" aria-hidden="true"></pre>
+    </details>
     <input id="command" placeholder="Ask LIVIA to transform or play" maxlength="200" aria-label="Companion command" />
     <button id="pause">Pause companion</button>
     <button id="site">Disable on this site</button>

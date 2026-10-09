@@ -166,16 +166,18 @@ async function readBytes(request, maxBytes) {
   return Buffer.concat(chunks);
 }
 
-export function createAgentServer({ token, allowedOrigins = [], provider = createOllamaProvider(), compatibleProvider, speechProvider, env = process.env } = {}) {
+export function createAgentServer({ token, allowedOrigins = [], provider = createOllamaProvider(), compatibleProvider, compatibleProviderFetch = fetch, speechProvider, env = process.env } = {}) {
   if (typeof token !== 'string' || token.length < 32) throw new Error('A LIVIA_AGENT_TOKEN of at least 32 characters is required.');
   const origins = new Set(allowedOrigins);
   let externalProvider = compatibleProvider;
+  let externalModels = externalModelChoices(env);
   const compatibleApiKey = env.AI_PROVIDER_API_KEY || env.OPENROUTER_API_KEY;
   if (!externalProvider && compatibleApiKey) {
     try {
       externalProvider = createCompatibleProvider({
         apiKey: compatibleApiKey,
         baseUrl: env.AI_PROVIDER_BASE_URL || env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+        fetchImpl: compatibleProviderFetch,
         referer: env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
       });
     } catch {
@@ -232,7 +234,6 @@ export function createAgentServer({ token, allowedOrigins = [], provider = creat
       const availableDefault = localModel && (installedModels.includes(localModel) || installedModels.includes(`${localModel}:latest`)) ? localModel : null;
       const availableModel = availableDefault || installedModels[0] || null;
       const localAvailable = Boolean(availableModel);
-      const externalModels = externalModelChoices(env);
       json(response, 200, {
         ok: true,
         providers: {
@@ -240,6 +241,48 @@ export function createAgentServer({ token, allowedOrigins = [], provider = creat
           openrouter: { configured: Boolean(externalProvider && externalModels.length), model: externalModels[0] || null, models: externalProvider ? externalModels : [] }
         }
       }, corsHeaders);
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/v1/providers/key') {
+      if (!hasValidToken(request.headers.authorization, token)) {
+        json(response, 401, { ok: false, error: 'Authentication required.' }, corsHeaders);
+        return;
+      }
+      let payload;
+      try {
+        payload = await readJson(request, 8_000);
+      } catch {
+        json(response, 400, { ok: false, error: 'Provider setup must be valid bounded JSON.' }, corsHeaders);
+        return;
+      }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).some((key) => key !== 'apiKey') ||
+        typeof payload.apiKey !== 'string' || payload.apiKey.trim().length < 8 || payload.apiKey.length > 4_096) {
+        json(response, 400, { ok: false, error: 'Enter a provider key between 8 and 4,096 characters.' }, corsHeaders);
+        return;
+      }
+      try {
+        const nextProvider = createCompatibleProvider({
+          apiKey: payload.apiKey.trim(),
+          baseUrl: env.AI_PROVIDER_BASE_URL || env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+          fetchImpl: compatibleProviderFetch,
+          referer: env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+        });
+        const availableModels = await nextProvider.models();
+        if (!availableModels.length) {
+          json(response, 502, { ok: false, error: 'The provider returned no available models.' }, corsHeaders);
+          return;
+        }
+        const configured = env.AI_PROVIDER_MODELS?.split(',').map((model) => model.trim()).filter(Boolean);
+        externalModels = (configured?.length ? availableModels.filter((model) => configured.includes(model)) : availableModels).slice(0, 100);
+        if (!externalModels.length) {
+          json(response, 400, { ok: false, error: 'No provider models match AI_PROVIDER_MODELS.' }, corsHeaders);
+          return;
+        }
+        externalProvider = nextProvider;
+        json(response, 200, { ok: true, models: externalModels, keyStored: false }, corsHeaders);
+      } catch {
+        json(response, 502, { ok: false, error: 'Provider verification failed. Check the key and AI_PROVIDER_BASE_URL.' }, corsHeaders);
+      }
       return;
     }
     const speechTranscription = request.url === '/v1/speech/transcribe';
@@ -330,7 +373,7 @@ export function createAgentServer({ token, allowedOrigins = [], provider = creat
 
     if (isPlanRequest) {
       const selectedProvider = payload.provider === 'openrouter' ? externalProvider : provider;
-      const choices = payload.provider === 'openrouter' ? externalModelChoices(env) : null;
+      const choices = payload.provider === 'openrouter' ? externalModels : null;
       const model = payload.model?.trim() || (payload.provider === 'openrouter' ? choices[0] : modelForTask('smart', env));
       if (payload.provider === 'openrouter' && model && !choices.includes(model)) {
         json(response, 400, { ok: false, error: 'Select a configured external model.' }, corsHeaders);

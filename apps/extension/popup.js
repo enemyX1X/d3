@@ -244,6 +244,43 @@ function renderLocalAgent() {
   document.getElementById('agent-voice').disabled = !connected;
   document.getElementById('agent-voice').textContent = voiceRecorder ? 'Stop and transcribe' : 'Start local voice input';
   document.getElementById('agent-speak').disabled = !connected || !state.lastAgentResponse;
+  document.getElementById('provider-connect').disabled = !connected;
+}
+
+async function verifyAdvancedProvider() {
+  const input = document.getElementById('provider-key');
+  const report = document.getElementById('provider-models');
+  const apiKey = input.value.trim();
+  if (!state.localAgentToken || !state.localAgentGranted) {
+    setMessage('Connect the local agent before configuring an external provider.');
+    return;
+  }
+  if (apiKey.length < 8 || apiKey.length > 4_096) {
+    setMessage('Enter a valid external provider key.');
+    return;
+  }
+  setMessage('Verifying provider and listing available models…');
+  try {
+    const response = await fetch(`${localAgentUrl}/v1/providers/key`, {
+      method: 'POST', cache: 'no-store', credentials: 'omit',
+      headers: { authorization: `Bearer ${state.localAgentToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey })
+    });
+    const result = await response.json();
+    input.value = '';
+    if (!response.ok || !result.ok) {
+      report.textContent = result.error || 'Provider verification failed.';
+      report.setAttribute('aria-hidden', 'false');
+      setMessage('External provider could not be verified.');
+      return;
+    }
+    report.textContent = `Verified models (available in Q):\n${result.models.join('\n')}\n\nKey held in local-agent memory only; it is not stored in extension settings.`;
+    report.setAttribute('aria-hidden', 'false');
+    setMessage('Advanced models verified. Reopen Q or refresh its model list.');
+  } catch {
+    input.value = '';
+    setMessage('Could not reach the local agent. The entered key was cleared.');
+  }
 }
 
 async function connectLocalAgent() {
@@ -618,6 +655,7 @@ document.getElementById('agent-ask').addEventListener('click', askLocalAgent);
 document.getElementById('agent-vision').addEventListener('click', analyzeScreenshotLocally);
 document.getElementById('agent-voice').addEventListener('click', startLocalVoiceInput);
 document.getElementById('agent-speak').addEventListener('click', speakLatestResponse);
+document.getElementById('provider-connect').addEventListener('click', verifyAdvancedProvider);
 
 document.getElementById('site').addEventListener('click', async () => {
   if (!state.host || !state.sitePattern || !state.tabId) {

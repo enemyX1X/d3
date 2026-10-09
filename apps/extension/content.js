@@ -782,7 +782,9 @@
     const nodes = [];
     const ids = new WeakMap();
     const pageId = 'page';
-    const pageRect = { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
+    const documentWidth = Math.max(window.innerWidth, document.documentElement.scrollWidth);
+    const documentHeight = Math.max(window.innerHeight, document.documentElement.scrollHeight);
+    const pageRect = { x: 0, y: 0, w: documentWidth, h: documentHeight };
     nodes.push({ id: pageId, type: 'PAGE', parentId: null, children: [], text: document.title, bounds: pageRect, visible: true, source: 'dom', confidence: 1 });
     ids.set(document.body || document.documentElement, pageId);
 
@@ -806,9 +808,13 @@
       return null;
     }
 
+    let scanned = 0;
+    const maxScanned = Math.min(12_000, Math.max(maxNodes * 30, 4_000));
+    const extractionLimit = Math.min(650, Math.max(maxNodes, 250));
     for (const root of roots) {
       for (const element of root.querySelectorAll('*')) {
-        if (nodes.length >= maxNodes) break;
+        if (nodes.length >= extractionLimit || scanned >= maxScanned) break;
+        scanned += 1;
         if (!(element instanceof HTMLElement || element instanceof SVGElement)) continue;
         if (element.closest?.('#livia-companion, [hidden], [inert], [data-livia-ignore]')) continue;
         const role = (element.getAttribute('role') || '').toLowerCase();
@@ -822,7 +828,7 @@
 
         const style = window.getComputedStyle(element);
         const rect = element.getBoundingClientRect();
-        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05 || rect.width < 1 || rect.height < 1 || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) continue;
+        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05 || rect.width < 1 || rect.height < 1) continue;
 
         const active = element === document.activeElement;
         const accessibleLabel = element.getAttribute('aria-label') || element.getAttribute('alt') || element.getAttribute('title') || (type === 'INPUT' ? element.getAttribute('placeholder') : '') || '';
@@ -842,7 +848,7 @@
           children: [],
           ...(text ? { text: String(text).replace(/\s+/g, ' ').trim().slice(0, 400) } : {}),
           ...(role ? { semanticRole: role } : {}),
-          bounds: { x: Math.max(0, rect.left), y: Math.max(0, rect.top), w: Math.min(rect.right, window.innerWidth) - Math.max(0, rect.left), h: Math.min(rect.bottom, window.innerHeight) - Math.max(0, rect.top) },
+          bounds: { x: rect.left + window.scrollX, y: rect.top + window.scrollY, w: rect.width, h: rect.height },
           visible: true,
           interactive: ['BUTTON', 'LINK', 'INPUT'].includes(type) || element.tabIndex >= 0,
           selected: element.getAttribute('aria-selected') === 'true' || element.getAttribute('aria-pressed') === 'true',

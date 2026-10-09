@@ -213,6 +213,88 @@
       feed.scrollTop = feed.scrollHeight;
     }
 
+    function offlineSummary(result, query) {
+      let evidence;
+      try {
+        evidence = JSON.parse(result.context || '{}');
+      } catch {
+        setStatus('The offline page snapshot could not be read.', true);
+        return;
+      }
+      const terms = [...new Set(String(query || '').toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || [])];
+      const sentences = [];
+      for (const item of evidence.elements || []) {
+        const text = String(item.text || '').replace(/\s+/g, ' ').trim();
+        for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+          const clean = sentence.trim();
+          if (clean.length < 36 || clean.length > 380) continue;
+          const lower = clean.toLowerCase();
+          const score = terms.reduce((sum, term) => sum + Number(lower.includes(term)), 0);
+          sentences.push({ text: clean, type: item.type, score, order: sentences.length });
+        }
+      }
+      const selected = sentences.sort((first, second) => second.score - first.score || first.order - second.order).slice(0, 5);
+      const card = document.createElement('article');
+      card.className = 'result-card';
+      const label = document.createElement('p');
+      label.className = 'eyebrow';
+      label.textContent = 'OFFLINE SUMMARY · NO MODEL OR KEY';
+      const title = document.createElement('p');
+      title.className = 'summary';
+      title.textContent = evidence.title || result.page?.title || 'Current page';
+      card.append(label, title);
+      const source = document.createElement('a');
+      source.className = 'source-link';
+      source.href = evidence.url || result.page?.url || '#';
+      source.target = '_blank';
+      source.rel = 'noreferrer';
+      source.textContent = evidence.url || result.page?.url || '';
+      card.appendChild(source);
+      if (!selected.length) {
+        const empty = document.createElement('p');
+        empty.className = 'answer';
+        empty.textContent = 'There is not enough visible text on this page to form a useful extractive summary.';
+        card.appendChild(empty);
+      } else {
+        const list = document.createElement('ul');
+        list.className = 'offline-points';
+        for (const item of selected) {
+          const point = document.createElement('li');
+          point.textContent = item.text;
+          list.appendChild(point);
+        }
+        card.appendChild(list);
+      }
+      for (const memory of (result.memories || []).slice(0, 3)) {
+        const citation = document.createElement('a');
+        citation.className = 'source-link';
+        citation.href = memory.url;
+        citation.target = '_blank';
+        citation.rel = 'noreferrer';
+        citation.textContent = `Related saved page: ${memory.title}`;
+        card.appendChild(citation);
+      }
+      feed.appendChild(card);
+      feed.scrollTop = feed.scrollHeight;
+      setStatus('Summarized locally from visible page text and saved-page memory. No model or key used.');
+    }
+
+    async function summarizeOffline(query = '') {
+      if (state.busy) return;
+      state.busy = true;
+      setStatus('Reading this page locally and searching saved-page memory…');
+      try {
+        const response = await callWorker({ type: 'livia-assistant-offline-context', query: query.slice(0, 160) });
+        if (!response.ok) throw new Error(response.error || 'Could not inspect this page offline.');
+        offlineSummary(response, query);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : 'Offline page summary failed.', true);
+      } finally {
+        state.busy = false;
+        submitButton.disabled = false;
+      }
+    }
+
     async function refreshModels() {
       try {
         const response = await callWorker({ type: 'livia-assistant-status' });
@@ -245,13 +327,19 @@
         } else if (remote?.configured) {
           modelSelect.value = remote.model;
         }
-        connectionText.textContent = local?.available ? `LOCAL MODEL READY · ${local.model}` : 'LOCAL MODEL NOT AVAILABLE';
-        connectionDot.className = `dot${local?.available ? ' ready' : ''}`;
-        setStatus(local?.available ? 'This page stays on your device with the local model.' : 'Install/configure a local model or choose a configured external provider.', !local?.available && !remote?.configured);
+        connectionText.textContent = local?.available ? `LOCAL MODEL READY · ${local.model}` : remote?.configured ? `EXTERNAL MODEL READY · ${remote.model}` : 'OFFLINE PAGE TOOLS READY';
+        connectionDot.className = `dot${local?.available || remote?.configured ? ' ready' : ''}`;
+        setStatus(local?.available ? 'This page stays on your device with the local model.' : remote?.configured ? 'External model available; page evidence still requires explicit consent.' : 'Offline summaries and saved-page search work without a model. Configure an advanced provider for planning.', false);
       } catch (error) {
         state.providers = null;
-        connectionText.textContent = 'LOCAL AGENT NOT CONNECTED';
-        setStatus(error instanceof Error ? error.message : 'Local agent not connected.', true);
+        modelSelect.replaceChildren();
+        const unavailable = document.createElement('option');
+        unavailable.value = '';
+        unavailable.textContent = 'No LLM configured · offline summary available';
+        modelSelect.appendChild(unavailable);
+        connectionText.textContent = 'OFFLINE PAGE TOOLS READY';
+        connectionDot.className = 'dot';
+        setStatus('Offline summaries and keyword search of saved pages need no model or key. Connect an agent for advanced tasks.');
       }
     }
 
@@ -262,6 +350,7 @@
       if (action === 'remember') button.classList.add('memory');
       button.addEventListener('click', () => {
         if (action === 'remember') void rememberPage();
+        else if (action === 'summarize') void summarizeOffline(text);
         else {
           taskInput.value = text;
           taskInput.focus();
@@ -270,7 +359,7 @@
       quickList.appendChild(button);
     }
 
-    quickTask('Summarize this page', 'Summarize this page in clear sections. Include the main points and cite visible evidence.');
+    quickTask('Summarize this page · offline', 'Summarize the main points on this page.', 'summarize');
     quickTask('Explain the main idea', 'Explain the purpose of this page and identify its main sections.');
     quickTask('Find a search field', 'Find the labeled search field on this page and explain what I can search for.');
     quickTask('Save this page to memory', '', 'remember');
@@ -293,6 +382,10 @@
       const model = modelSelect.value;
       const allowRemoteContext = provider === 'openrouter' && consentInput.checked;
       if (!provider || !model) {
+        if (/summari[sz]|key points|main idea|explain this page/i.test(goal)) {
+          await summarizeOffline(goal);
+          return;
+        }
         setStatus('No model is configured. Start Ollama or configure an external provider in the local agent.', true);
         return;
       }

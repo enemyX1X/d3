@@ -12,8 +12,21 @@ export function createCompatibleProvider({
     throw new Error('Compatible model providers must use an HTTPS endpoint without embedded credentials.');
   }
   const endpoint = `${parsed.origin}${parsed.pathname.replace(/\/$/, '')}/chat/completions`;
+  const modelsEndpoint = `${parsed.origin}${parsed.pathname.replace(/\/$/, '')}/models`;
 
   return {
+    async models() {
+      const response = await fetchImpl(modelsEndpoint, {
+        method: 'GET',
+        headers: { authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(Math.min(timeoutMs, 10_000))
+      });
+      if (!response.ok) throw new Error(`Compatible provider verification failed (${response.status}).`);
+      const payload = await response.json();
+      const models = payload?.data;
+      if (!Array.isArray(models)) throw new Error('Compatible provider returned an invalid model list.');
+      return models.map((item) => typeof item?.id === 'string' ? item.id : '').filter(Boolean).slice(0, 100);
+    },
     async chat({ model, messages, jsonMode = false }) {
       if (typeof model !== 'string' || !model.trim() || !Array.isArray(messages) || !messages.length) {
         throw new Error('A model and bounded conversation are required.');

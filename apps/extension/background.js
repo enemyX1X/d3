@@ -462,6 +462,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request?.type === 'livia-assistant-offline-context') {
+    const tabId = sender.tab?.id;
+    if (!Number.isInteger(tabId) || typeof request.query !== 'string' || request.query.length > 160) {
+      sendResponse({ ok: false, error: 'Invalid offline page-summary request.' });
+      return false;
+    }
+    getEnabledPage(tabId, false).then(async (access) => {
+      if (!access.tab) return { ok: false, error: access.error };
+      const scene = await chrome.tabs.sendMessage(tabId, { type: 'get-scene', maxNodes: 500 });
+      if (!scene?.ok) return { ok: false, error: scene?.error || 'Could not inspect the current page.' };
+      const memories = request.query ? await retrievePageMemory(tabId, request.query, null) : [];
+      return {
+        ok: true,
+        page: { title: scene.scene.page.title, url: scene.scene.page.url },
+        context: compactScene(scene.scene),
+        memories
+      };
+    }).then(sendResponse).catch(() => sendResponse({ ok: false, error: 'Could not summarize this page offline.' }));
+    return true;
+  }
+
   if (request?.type === 'livia-assistant-prepare') {
     const tabId = sender.tab?.id;
     if (!Number.isInteger(tabId) || typeof request.planId !== 'string' || request.planId.length > 80 || typeof request.target !== 'string' || !['scroll', 'click', 'search'].includes(request.action)) {

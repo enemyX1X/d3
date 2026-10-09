@@ -298,6 +298,40 @@ test('task planner bounds search queries and validates the proposed search actio
   });
 });
 
+test('advanced provider key verification returns model choices but never echoes the key', async () => {
+  let catalogUrl;
+  let catalogAuthorization;
+  await withServer({
+    token,
+    env: {},
+    compatibleProviderFetch: async (url, options) => {
+      catalogUrl = url;
+      catalogAuthorization = options.headers.authorization;
+      return { ok: true, json: async () => ({ data: [{ id: 'advanced/fast' }, { id: 'advanced/reasoning' }] }) };
+    }
+  }, async (baseUrl) => {
+    const apiKey = 'provider-secret-never-return-this';
+    const unauthorized = await fetch(`${baseUrl}/v1/providers/key`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ apiKey })
+    });
+    assert.equal(unauthorized.status, 401);
+
+    const verified = await fetch(`${baseUrl}/v1/providers/key`, {
+      method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ apiKey })
+    });
+    assert.equal(verified.status, 200);
+    const payload = await verified.json();
+    assert.deepEqual(payload, { ok: true, models: ['advanced/fast', 'advanced/reasoning'], keyStored: false });
+    assert.doesNotMatch(JSON.stringify(payload), /provider-secret/);
+    assert.equal(catalogUrl, 'https://openrouter.ai/api/v1/models');
+    assert.equal(catalogAuthorization, `Bearer ${apiKey}`);
+
+    const status = await fetch(`${baseUrl}/v1/providers`, { headers: { authorization: `Bearer ${token}` } });
+    const providers = await status.json();
+    assert.deepEqual(providers.providers.openrouter.models, ['advanced/fast', 'advanced/reasoning']);
+  });
+});
+
 test('compatible provider requires HTTPS and sends JSON-mode requests without exposing credentials in URLs', async () => {
   const { createCompatibleProvider } = await import('../compatible-provider.mjs');
   assert.throws(() => createCompatibleProvider({ apiKey: 'secret', baseUrl: 'http://provider.test/v1' }), /HTTPS/);
