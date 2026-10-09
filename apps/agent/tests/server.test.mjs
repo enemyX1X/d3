@@ -256,21 +256,21 @@ test('task planning selects the configured compatible provider and rejects unsaf
   let externalModel;
   await withServer({
     token,
-    env: { OPENROUTER_MODEL: 'provider/model' },
+    env: { OPENROUTER_MODEL: 'provider/model', AI_PROVIDER_MODELS: 'provider/model,provider/advanced' },
     provider: { chat: async () => { throw new Error('Local provider must not be selected.'); } },
     compatibleProvider: { chat: async ({ model }) => { externalModel = model; return JSON.stringify({ summary: 'Done', answer: 'No action needed.', steps: [{ goal: 'Submit form', action: 'click', target: 'submit button', reason: 'Matched' }] }); } }
   }, async (baseUrl) => {
     const unavailable = await fetch(`${baseUrl}/v1/plan`, {
       method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ goal: 'Search', context: '', provider: 'openrouter', allowRemoteContext: true })
+      body: JSON.stringify({ goal: 'Search', context: '', provider: 'openrouter', model: 'provider/advanced', allowRemoteContext: true })
     });
     assert.equal(unavailable.status, 502);
-    assert.equal(externalModel, 'provider/model');
+    assert.equal(externalModel, 'provider/advanced');
 
     const status = await fetch(`${baseUrl}/v1/providers`, { headers: { authorization: `Bearer ${token}` } });
     assert.deepEqual(await status.json(), {
       ok: true,
-      providers: { local: { configured: true, available: false, model: 'qwen3:4b' }, openrouter: { configured: true, model: 'provider/model' } }
+      providers: { local: { configured: true, available: false, model: null, models: ['qwen3:4b'] }, openrouter: { configured: true, model: 'provider/model', models: ['provider/model', 'provider/advanced'] } }
     });
   });
 });

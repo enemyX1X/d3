@@ -97,10 +97,11 @@ function validEmbeddingPayload(payload) {
 
 function validPlanRequest(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload) ||
-    Object.keys(payload).some((key) => !['goal', 'context', 'memories', 'provider', 'progress', 'allowRemoteContext'].includes(key))) return false;
+    Object.keys(payload).some((key) => !['goal', 'context', 'memories', 'provider', 'model', 'progress', 'allowRemoteContext'].includes(key))) return false;
   if (typeof payload.goal !== 'string' || !payload.goal.trim() || payload.goal.length > 1_000) return false;
   if (typeof payload.context !== 'string' || payload.context.length > 8_000) return false;
   if (!['local', 'openrouter'].includes(payload.provider)) return false;
+  if (payload.model !== undefined && (typeof payload.model !== 'string' || !payload.model.trim() || payload.model.length > 160)) return false;
   if (payload.allowRemoteContext !== undefined && typeof payload.allowRemoteContext !== 'boolean') return false;
   if (payload.provider === 'openrouter' && payload.allowRemoteContext !== true) return false;
   if (payload.memories !== undefined && (!Array.isArray(payload.memories) || payload.memories.length > 5 || payload.memories.some((memory) =>
@@ -135,6 +136,12 @@ function parsePlan(content) {
   }
   if (plan.complete && steps.length) return null;
   return { complete: plan.complete, summary: plan.summary.trim(), answer: plan.answer.trim(), steps };
+}
+
+function externalModelChoices(env) {
+  const configured = env.AI_PROVIDER_MODELS?.split(',').map((model) => model.trim()).filter(Boolean) || [];
+  const fallback = env.AI_PROVIDER_MODEL?.trim() || env.OPENROUTER_MODEL?.trim();
+  return [...new Set(configured.length ? configured : fallback ? [fallback] : [])].slice(0, 20);
 }
 
 async function readJson(request, maxBytes = MAX_BODY_BYTES) {
@@ -215,19 +222,22 @@ export function createAgentServer({ token, allowedOrigins = [], provider = creat
         return;
       }
       const localModel = modelForTask('smart', env);
-      let localAvailable = false;
+      let installedModels = [];
       try {
-        const installedModels = await provider.models?.() || [];
-        localAvailable = installedModels.includes(localModel) || installedModels.includes(`${localModel}:latest`);
+        installedModels = await provider.models?.() || [];
       } catch {
-        localAvailable = false;
+        installedModels = [];
       }
-      const externalModel = env.AI_PROVIDER_MODEL?.trim() || env.OPENROUTER_MODEL?.trim() || '';
+      const localModels = typeof provider.models === 'function' ? installedModels : localModel ? [localModel] : [];
+      const availableDefault = localModel && (installedModels.includes(localModel) || installedModels.includes(`${localModel}:latest`)) ? localModel : null;
+      const availableModel = availableDefault || installedModels[0] || null;
+      const localAvailable = Boolean(availableModel);
+      const externalModels = externalModelChoices(env);
       json(response, 200, {
         ok: true,
         providers: {
-          local: { configured: Boolean(localModel), available: localAvailable, model: localModel || null },
-          openrouter: { configured: Boolean(externalProvider && externalModel), model: externalProvider && externalModel ? externalModel : null }
+          local: { configured: Boolean(localModel), available: localAvailable, model: availableModel, models: localModels.slice(0, 20) },
+          openrouter: { configured: Boolean(externalProvider && externalModels.length), model: externalModels[0] || null, models: externalProvider ? externalModels : [] }
         }
       }, corsHeaders);
       return;
@@ -320,7 +330,24 @@ export function createAgentServer({ token, allowedOrigins = [], provider = creat
 
     if (isPlanRequest) {
       const selectedProvider = payload.provider === 'openrouter' ? externalProvider : provider;
-      const model = payload.provider === 'openrouter' ? env.AI_PROVIDER_MODEL?.trim() || env.OPENROUTER_MODEL?.trim() : modelForTask('smart', env);
+      const choices = payload.provider === 'openrouter' ? externalModelChoices(env) : null;
+      const model = payload.model?.trim() || (payload.provider === 'openrouter' ? choices[0] : modelForTask('smart', env));
+      if (payload.provider === 'openrouter' && model && !choices.includes(model)) {
+        json(response, 400, { ok: false, error: 'Select a configured external model.' }, corsHeaders);
+        return;
+      }
+      if (payload.provider === 'local' && typeof provider.models === 'function') {
+        try {
+          const installedModels = await provider.models();
+          if (!installedModels.includes(model) && !installedModels.includes(`${model}:latest`)) {
+            json(response, 503, { ok: false, error: `The selected local model (${model}) is not installed in Ollama.` }, corsHeaders);
+            return;
+          }
+        } catch {
+          json(response, 503, { ok: false, error: 'Ollama is unavailable. Start it and install a local model.' }, corsHeaders);
+          return;
+        }
+      }
       if (!selectedProvider || !model) {
         json(response, 503, { ok: false, error: payload.provider === 'openrouter' ? 'Configure OPENROUTER_API_KEY and OPENROUTER_MODEL on the local agent.' : 'The local model is unavailable. Start Ollama and install a configured local model.' }, corsHeaders);
         return;

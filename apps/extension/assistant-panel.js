@@ -13,7 +13,10 @@
         header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
         .identity { display:flex; align-items:center; gap:10px; min-width:0; }
         .mark { display:grid; flex:none; width:31px; height:31px; place-items:center; border:1px solid rgba(200,241,105,.4); border-radius:9px 9px 9px 3px; background:rgba(200,241,105,.1); color:#d2ff7a; font-weight:800; }
-        .brand { display:block; font-size:12px; font-weight:750; letter-spacing:.15em; }
+        .signature { min-width:0; }
+        .brand { display:flex; gap:1px; min-height:18px; color:#eff6e9; font-size:13px; font-weight:750; letter-spacing:.15em; }
+        .brand-letter { display:inline-block; min-width:10px; text-align:center; color:#d8f995; text-shadow:0 0 10px rgba(200,241,105,.25); }
+        .full-form { margin:1px 0 0; color:#94a58d; font-size:7px; letter-spacing:.035em; white-space:nowrap; }
         .connection { display:flex; align-items:center; gap:6px; margin-top:2px; color:#95a9b7; font-size:9px; }
         .dot { width:6px; height:6px; flex:none; border-radius:50%; background:#79848c; }
         .dot.ready { background:#c8f169; box-shadow:0 0 8px #c8f16988; }
@@ -63,9 +66,9 @@
         @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; animation-iteration-count:1!important; } }
       </style>
       <section class="sheet" role="dialog" aria-modal="false" aria-label="LIVIA browser task assistant">
-        <header><div class="identity"><span class="mark">L</span><span><strong class="brand">LIVIA</strong><span class="connection"><i class="dot"></i><span class="connection-text">CHECKING LOCAL MODELS</span></span></span></div><button class="close" type="button" aria-label="Close LIVIA">×</button></header>
+        <header><div class="identity"><span class="mark">L</span><span class="signature"><strong class="brand" aria-label="LIVIA"><span class="brand-letter">L</span><span class="brand-letter">I</span><span class="brand-letter">V</span><span class="brand-letter">I</span><span class="brand-letter">A</span></strong><span class="full-form">Living Interactive Virtual Intelligent Assistant</span><span class="connection"><i class="dot"></i><span class="connection-text">CHECKING LOCAL MODELS</span></span></span></div><button class="close" type="button" aria-label="Close LIVIA">×</button></header>
         <div class="quick" aria-label="Quick tasks"></div>
-        <div class="conversation"><div class="feed" aria-live="polite"><p class="welcome">Tell me what you want to accomplish on this page. I’ll inspect it, show evidence, and propose actions for your approval.</p></div><form class="composer"><textarea maxlength="1000" aria-label="Describe your task" placeholder="What should I do on this page?"></textarea><div class="controls"><select aria-label="AI model"><option value="local">Local / offline</option><option value="openrouter">External provider</option></select><button class="send" type="submit">Plan task ↗</button></div><label class="consent" hidden><input type="checkbox"><span>Allow sending this goal and page evidence to the external model.</span></label><p class="status" role="status"></p></form></div>
+        <div class="conversation"><div class="feed" aria-live="polite"><p class="welcome">Tell me what you want to accomplish on this page. I’ll inspect it, show evidence, and propose actions for your approval.</p></div><form class="composer"><textarea maxlength="1000" aria-label="Describe your task" placeholder="What should I do on this page?"></textarea><div class="controls"><select aria-label="AI model"><option value="">Checking models…</option></select><button class="send" type="submit">Plan task ↗</button></div><label class="consent" hidden><input type="checkbox"><span>Allow sending this goal and page evidence to the external model.</span></label><p class="status" role="status"></p></form></div>
       </section>`;
 
     const hostElement = shadow.querySelector('.sheet');
@@ -80,8 +83,41 @@
     const status = shadow.querySelector('.status');
     const connectionDot = shadow.querySelector('.dot');
     const connectionText = shadow.querySelector('.connection-text');
+    const brandLetters = [...shadow.querySelectorAll('.brand-letter')];
+    const fullForm = shadow.querySelector('.full-form');
     const quickList = shadow.querySelector('.quick');
-    const state = { open: false, providers: null, busy: false, approvalId: '', planId: '', actionTimer: 0, progress: [] };
+    const state = { open: false, providers: null, busy: false, approvalId: '', planId: '', actionTimer: 0, signatureTimer: 0, progress: [] };
+    const finalName = ['L', 'I', 'V', 'I', 'A'];
+    const glyphs = [
+      ['L', 'Ł', 'Լ', 'Ⅼ', '╰', 'L'],
+      ['I', 'İ', 'І', 'Ⅰ', '¦', 'I'],
+      ['V', 'Ⅴ', 'ν', '∨', '✓', 'V'],
+      ['I', 'Ї', 'Ӏ', 'Ⅰ', '⋮', 'I'],
+      ['A', 'Å', 'Α', 'А', '∆', 'A']
+    ];
+
+    function animateSignature() {
+      window.clearInterval(state.signatureTimer);
+      fullForm.textContent = '';
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        brandLetters.forEach((letter, index) => { letter.textContent = finalName[index]; });
+        fullForm.textContent = 'Living Interactive Virtual Intelligent Assistant';
+        return;
+      }
+      let tick = 0;
+      state.signatureTimer = window.setInterval(() => {
+        if (tick >= 18) {
+          window.clearInterval(state.signatureTimer);
+          brandLetters.forEach((letter, index) => { letter.textContent = finalName[index]; });
+          fullForm.textContent = 'Living Interactive Virtual Intelligent Assistant';
+          return;
+        }
+        brandLetters.forEach((letter, index) => {
+          letter.textContent = glyphs[index][(tick + index * 2) % glyphs[index].length];
+        });
+        tick += 1;
+      }, 76);
+    }
 
     function callWorker(message) {
       return new Promise((resolve, reject) => {
@@ -184,8 +220,31 @@
         state.providers = response.providers;
         const local = response.providers?.local;
         const remote = response.providers?.openrouter;
-        modelSelect.options[0].textContent = `Local / offline${local?.available ? ` · ${local.model}` : ' · unavailable'}`;
-        modelSelect.options[1].textContent = `External provider${remote?.configured ? ` · ${remote.model}` : ' · not configured'}`;
+        modelSelect.replaceChildren();
+        for (const model of (local?.models || []).slice(0, 20)) {
+          const option = document.createElement('option');
+          option.value = model;
+          option.dataset.provider = 'local';
+          option.textContent = `${model} · offline`;
+          modelSelect.appendChild(option);
+        }
+        for (const model of (remote?.models || []).slice(0, 20)) {
+          const option = document.createElement('option');
+          option.value = model;
+          option.dataset.provider = 'openrouter';
+          option.textContent = `${model} · external`;
+          modelSelect.appendChild(option);
+        }
+        if (!modelSelect.options.length) {
+          const option = document.createElement('option');
+          option.value = '';
+          option.textContent = 'No configured models';
+          modelSelect.appendChild(option);
+        } else if (local?.available) {
+          modelSelect.value = local.model;
+        } else if (remote?.configured) {
+          modelSelect.value = remote.model;
+        }
         connectionText.textContent = local?.available ? `LOCAL MODEL READY · ${local.model}` : 'LOCAL MODEL NOT AVAILABLE';
         connectionDot.className = `dot${local?.available ? ' ready' : ''}`;
         setStatus(local?.available ? 'This page stays on your device with the local model.' : 'Install/configure a local model or choose a configured external provider.', !local?.available && !remote?.configured);
@@ -220,6 +279,7 @@
       state.open = typeof forceOpen === 'boolean' ? forceOpen : !state.open;
       host.style.display = state.open ? 'block' : 'none';
       if (state.open) {
+        animateSignature();
         void refreshModels();
         taskInput.focus({ preventScroll: true });
       }
@@ -228,8 +288,14 @@
     async function planTask(progress = state.progress) {
       const goal = taskInput.value.trim();
       if (!goal || state.busy) return;
-      const provider = modelSelect.value;
+      const selectedModel = modelSelect.selectedOptions[0];
+      const provider = selectedModel?.dataset.provider;
+      const model = modelSelect.value;
       const allowRemoteContext = provider === 'openrouter' && consentInput.checked;
+      if (!provider || !model) {
+        setStatus('No model is configured. Start Ollama or configure an external provider in the local agent.', true);
+        return;
+      }
       if (provider === 'openrouter' && !allowRemoteContext) {
         setStatus('Check the external-data consent before using the remote model.', true);
         return;
@@ -246,7 +312,7 @@
       submitButton.disabled = true;
       setStatus(progress.length ? 'Checking the page again after the approved action…' : 'Understanding the visible page and saved-page memory…');
       try {
-        const response = await callWorker({ type: 'livia-assistant-plan', goal, provider, allowRemoteContext, progress });
+        const response = await callWorker({ type: 'livia-assistant-plan', goal, provider, model, allowRemoteContext, progress });
         if (!response.ok) throw new Error(response.error || 'Could not plan this task.');
         state.planId = response.planId || '';
         appendPlan(response);
@@ -315,8 +381,9 @@
     }
 
     modelSelect.addEventListener('change', () => {
-      consent.hidden = modelSelect.value !== 'openrouter';
-      if (modelSelect.value === 'openrouter') consentInput.focus();
+      const provider = modelSelect.selectedOptions[0]?.dataset.provider;
+      consent.hidden = provider !== 'openrouter';
+      if (provider === 'openrouter') consentInput.focus();
     });
     form.addEventListener('submit', (event) => { event.preventDefault(); void planTask(); });
     closeButton.addEventListener('click', () => toggle(false));
@@ -324,7 +391,7 @@
     return {
       toggle,
       contains(target) { return host.contains(target); },
-      dispose() { window.clearInterval(state.actionTimer); host.remove(); }
+      dispose() { window.clearInterval(state.actionTimer); window.clearInterval(state.signatureTimer); host.remove(); }
     };
   }
 

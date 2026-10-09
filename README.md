@@ -30,7 +30,7 @@ npm install
 4. Put `NEXT_PUBLIC_EXTENSION_ID=<extension-id>` in `apps/web/.env.local`, then start the services in separate terminals: `npm run dev:agent` and `npm run dev:web`.
 5. Open an ordinary website, use the LIVIA toolbar popup to enable that site and connect the local model with the same token, then return to `http://localhost:3000` and refresh the extension connection. The task workspace does not receive the old avatar/game overlay.
 
-Optional compatible remote model configuration stays server-side in `.env`: set `AI_PROVIDER_API_KEY`, `AI_PROVIDER_BASE_URL` (defaults to OpenRouter), and `AI_PROVIDER_MODEL`, then restart the agent. Never use a `NEXT_PUBLIC_` prefix for provider credentials. For OpenRouter, use its HTTPS API base and a model identifier supported by that account. Remote page evidence is sent only after explicit user consent.
+Optional compatible remote model configuration stays server-side in `.env`: set `AI_PROVIDER_API_KEY`, `AI_PROVIDER_BASE_URL` (defaults to OpenRouter), and either `AI_PROVIDER_MODEL` or a comma-separated `AI_PROVIDER_MODELS` list for the Q-panel selector, then restart the agent. Never use a `NEXT_PUBLIC_` prefix for provider credentials. For OpenRouter, use its HTTPS API base and model identifiers supported by that account. Remote page evidence is sent only after explicit user consent.
 
 To host the website outside localhost, add that exact HTTPS origin to `apps/extension/workspace-origins.js` and the `externally_connectable.matches` list in `apps/extension/manifest.json`, rebuild/reload the extension, and allow the matching extension origin in `LIVIA_ALLOWED_ORIGINS`. Chrome requires a user gesture to load an unpacked extension; a web deployment cannot install it silently.
 

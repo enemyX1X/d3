@@ -76,7 +76,7 @@ function validWorkspaceRequest(request) {
     'get-status': { required: [], optional: [] },
     'get-context': { required: ['tabId', 'goal'], optional: [] },
     'remember-page': { required: ['tabId'], optional: [] },
-    'plan': { required: ['tabId', 'goal', 'provider'], optional: ['progress', 'allowRemoteContext'] },
+    'plan': { required: ['tabId', 'goal', 'provider'], optional: ['model', 'progress', 'allowRemoteContext'] },
     'prepare-action': { required: ['tabId', 'target', 'action'], optional: ['value'] },
     'cancel-action': { required: ['approvalId'], optional: [] },
     'get-action-result': { required: ['approvalId'], optional: [] }
@@ -202,6 +202,7 @@ async function workspacePlan(request, requireWorkspaceSelection = true) {
         context,
         memories,
         provider: request.provider,
+        ...(typeof request.model === 'string' ? { model: request.model } : {}),
         allowRemoteContext: request.allowRemoteContext === true,
         progress: Array.isArray(request.progress) ? request.progress.slice(0, 6) : []
       })
@@ -445,11 +446,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request?.type === 'livia-assistant-plan') {
     const tabId = sender.tab?.id;
     if (!Number.isInteger(tabId) || typeof request.goal !== 'string' || !request.goal.trim() || request.goal.length > 1_000 ||
-      !['local', 'openrouter'].includes(request.provider) || (request.provider === 'openrouter' && request.allowRemoteContext !== true)) {
+      !['local', 'openrouter'].includes(request.provider) || (request.model !== undefined && (typeof request.model !== 'string' || !request.model.trim() || request.model.length > 160)) ||
+      (request.provider === 'openrouter' && request.allowRemoteContext !== true)) {
       sendResponse({ ok: false, error: 'Enter a task, select an available model, and approve external context when requested.' });
       return false;
     }
-    workspacePlan({ tabId, goal: request.goal, provider: request.provider, allowRemoteContext: request.allowRemoteContext === true, progress: Array.isArray(request.progress) ? request.progress.slice(0, 6) : [] }, false)
+    workspacePlan({ tabId, goal: request.goal, provider: request.provider, model: request.model, allowRemoteContext: request.allowRemoteContext === true, progress: Array.isArray(request.progress) ? request.progress.slice(0, 6) : [] }, false)
       .then(sendResponse).catch(() => sendResponse({ ok: false, error: 'LIVIA could not prepare a plan.' }));
     return true;
   }
