@@ -2,8 +2,8 @@ import './globals.css';
 import type { Metadata, Viewport } from 'next';
 
 export const metadata: Metadata = {
-  title: 'LIVIA | Local AI Workspace',
-  description: 'A local-first companion workspace for profiles, project notes, browser controls, and transparent service status.'
+  title: 'LIVIA | Living Interactive Virtual Intelligent Assistant',
+  description: 'Get LIVIA from CYBERSTARLINK. A local-first browser assistant for offline page understanding, saved-page search, and permissioned AI tasks.'
 };
 
 export const viewport: Viewport = {

@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation';
+import TaskWorkspace from '@/components/TaskWorkspace';
 
 export default function DashboardPage() {
-  redirect('/');
+  return <TaskWorkspace />;
 }

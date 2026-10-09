@@ -1,5 +1,5 @@
-import TaskWorkspace from '@/components/TaskWorkspace';
+import HomePage from '@/components/HomePage';
 
-export default function HomePage() {
-  return <TaskWorkspace />;
+export default function Page() {
+  return <HomePage />;
 }
