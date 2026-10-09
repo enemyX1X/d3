@@ -53,7 +53,7 @@
 
   const overlay = document.createElement('div');
   overlay.id = 'livia-companion';
-  overlay.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;display:none;';
+  overlay.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;';
 
   const canvas = document.createElement('canvas');
   canvas.width = window.innerWidth;
@@ -68,167 +68,17 @@
 
   const ctx = canvas.getContext('2d');
   const character = self.LIVIACharacter?.create(characterCanvas, chrome.runtime.getURL('assets/box-02_robot.glb'));
-  const assistantWidget = document.createElement('section');
-  assistantWidget.setAttribute('aria-label', 'Ask LIVIA');
-  assistantWidget.style.cssText = 'position:fixed;top:72px;right:16px;width:min(360px,calc(100vw - 28px));max-height:calc(100vh - 96px);overflow:auto;box-sizing:border-box;padding:16px;border:1px solid rgba(124,243,255,.5);border-radius:14px;background:rgba(5,10,18,.84);backdrop-filter:blur(16px);box-shadow:0 14px 48px rgba(0,0,0,.45),0 0 24px rgba(124,243,255,.12);color:#edf6ff;font:13px/1.5 system-ui,sans-serif;pointer-events:auto;display:none;';
-  overlay.appendChild(assistantWidget);
+  const assistantPanel = self.LIVIAAssistantPanel?.create(overlay);
+  const assistantWidget = { contains: (target) => assistantPanel?.contains(target) || false };
   let frameId = 0;
   let lastFrameAt = 0;
   let scanTimer = 0;
   let sceneGeneration = 0;
   const sceneElementById = new Map();
 
-  const assistantHeader = document.createElement('div');
-  assistantHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;';
-  const assistantTitle = document.createElement('strong');
-  assistantTitle.textContent = 'Ask LIVIA';
-  assistantTitle.style.cssText = 'font-size:16px;';
-  const assistantClose = document.createElement('button');
-  assistantClose.type = 'button';
-  assistantClose.textContent = 'Close';
-  assistantClose.style.cssText = 'border:1px solid rgba(124,243,255,.4);border-radius:8px;background:transparent;color:inherit;padding:5px 9px;cursor:pointer;';
-  assistantHeader.append(assistantTitle, assistantClose);
-  const assistantHint = document.createElement('p');
-  assistantHint.textContent = 'Summary and reading stay local. News and translation open Google.';
-  assistantHint.style.cssText = 'margin:0 0 12px;color:#a7bad8;font-size:12px;';
-  const languageSelect = document.createElement('select');
-  languageSelect.setAttribute('aria-label', 'Translation language');
-  languageSelect.style.cssText = 'width:100%;margin:0 0 10px;padding:8px;border:1px solid rgba(124,243,255,.32);border-radius:8px;background:#111a27;color:#edf6ff;';
-  for (const [code, label] of [['en', 'English'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'], ['hi', 'Hindi']]) {
-    const option = document.createElement('option');
-    option.value = code;
-    option.textContent = label;
-    languageSelect.appendChild(option);
-  }
-  const assistantActions = document.createElement('div');
-  assistantActions.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;';
-  const assistantQuestion = document.createElement('input');
-  assistantQuestion.type = 'text';
-  assistantQuestion.maxLength = 180;
-  assistantQuestion.placeholder = 'Ask about this page...';
-  assistantQuestion.setAttribute('aria-label', 'Ask LIVIA about this page');
-  assistantQuestion.style.cssText = 'width:100%;min-height:38px;box-sizing:border-box;margin:10px 0 0;padding:8px 10px;border:1px solid rgba(124,243,255,.32);border-radius:8px;background:#111a27;color:#edf6ff;';
-  const askButton = document.createElement('button');
-  askButton.type = 'button';
-  askButton.textContent = 'Ask';
-  askButton.style.cssText = 'width:100%;min-height:36px;margin-top:7px;border:1px solid rgba(124,243,255,.42);border-radius:8px;background:rgba(124,243,255,.14);color:#edf6ff;cursor:pointer;';
-  const assistantResult = document.createElement('div');
-  assistantResult.setAttribute('aria-live', 'polite');
-  assistantResult.style.cssText = 'margin-top:12px;padding:10px;border:1px solid rgba(124,243,255,.18);border-radius:9px;background:rgba(14,22,34,.72);white-space:pre-wrap;overflow-wrap:anywhere;';
-  assistantWidget.append(assistantHeader, assistantHint, assistantQuestion, askButton, languageSelect, assistantActions, assistantResult);
-
-  function setAssistantResult(message) {
-    assistantResult.replaceChildren();
-    assistantResult.textContent = message;
-  }
-
-  function makeAssistantButton(label, onClick) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = label;
-    button.style.cssText = 'min-height:38px;border:1px solid rgba(124,243,255,.28);border-radius:8px;background:rgba(124,243,255,.07);color:#edf6ff;padding:7px 8px;cursor:pointer;';
-    button.addEventListener('click', onClick);
-    assistantActions.appendChild(button);
-    return button;
-  }
-
   function toggleAssistantWidget(forceOpen) {
-    const open = typeof forceOpen === 'boolean' ? forceOpen : assistantWidget.style.display === 'none';
-    assistantWidget.style.display = open ? 'block' : 'none';
-    if (open) assistantClose.focus({ preventScroll: true });
+    assistantPanel?.toggle(forceOpen);
   }
-
-  function summarizePage() {
-    const lines = scanVisibleText()
-      .filter((item) => item.type === 'TEXT' && item.text.trim())
-      .map((item) => item.text.trim().replace(/\s+/g, ' '));
-    if (!lines.length) {
-      setAssistantResult('No readable page text is available in the current viewport.');
-      return;
-    }
-    const uniqueLines = [...new Set(lines)].slice(0, 6);
-    setAssistantResult(`Local summary of visible text\n\n${uniqueLines.join('\n')}`);
-  }
-
-  function requestAssistantAction(type, extra = {}) {
-    setAssistantResult('Working...');
-    chrome.runtime.sendMessage({ type, ...extra }, (response) => {
-      const error = chrome.runtime.lastError;
-      if (error || !response?.ok) {
-        setAssistantResult(response?.error || error?.message || 'That action could not be completed.');
-        return;
-      }
-      if (type === 'assistant-capture') {
-        assistantResult.replaceChildren();
-        const preview = document.createElement('img');
-        preview.alt = 'Screenshot of the current page';
-        preview.src = response.dataUrl;
-        preview.style.cssText = 'display:block;width:100%;max-height:340px;object-fit:contain;border-radius:6px;';
-        const download = document.createElement('a');
-        download.href = response.dataUrl;
-        download.download = 'livia-page-screenshot.png';
-        download.textContent = 'Download screenshot';
-        download.style.cssText = 'display:inline-block;margin-top:8px;color:#7cf3ff;';
-        assistantResult.append(preview, download);
-      } else {
-        setAssistantResult(response.message || 'Opened in a new tab.');
-      }
-    });
-  }
-
-  function askAssistant() {
-    const question = assistantQuestion.value.trim().toLowerCase();
-    if (!question) {
-      setAssistantResult('Ask me to summarize, find latest news, translate, read aloud, or take a screenshot.');
-    } else if (/summari[sz]|explain|what is this page|key points/.test(question)) {
-      summarizePage();
-    } else if (/news|latest|recent|updates/.test(question)) {
-      const topic = (document.title || '').replace(/\s*[|–—-]\s*[^|–—-]+$/, '').trim().slice(0, 120);
-      requestAssistantAction('assistant-news', { topic: topic || location.hostname });
-    } else if (/translat|language|convert/.test(question)) {
-      requestAssistantAction('assistant-translate', { language: languageSelect.value });
-    } else if (/read|speak|listen|aloud/.test(question)) {
-      const text = scanVisibleText().filter((item) => item.type === 'TEXT').map((item) => item.text).join('. ').slice(0, 8000);
-      if (!text || !window.speechSynthesis) {
-        setAssistantResult('No readable text or speech synthesis is available.');
-        return;
-      }
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
-      setAssistantResult('Reading visible page text aloud.');
-    } else if (/screenshot|capture|screen shot/.test(question)) {
-      requestAssistantAction('assistant-capture');
-    } else {
-      setAssistantResult('I can summarize visible text, search its topic in Google News, open Google Translate, read it aloud, or capture a screenshot.');
-    }
-  }
-
-  makeAssistantButton('Summarize page', summarizePage);
-  makeAssistantButton('Latest news (Google)', () => {
-    const topic = (document.title || '').replace(/\s*[|–—-]\s*[^|–—-]+$/, '').trim().slice(0, 120);
-    requestAssistantAction('assistant-news', { topic: topic || location.hostname });
-  });
-  makeAssistantButton('Translate (Google)', () => requestAssistantAction('assistant-translate', { language: languageSelect.value }));
-  makeAssistantButton('Read aloud', () => {
-    const text = scanVisibleText().filter((item) => item.type === 'TEXT').map((item) => item.text).join('. ').slice(0, 8000);
-    if (!text || !window.speechSynthesis) {
-      setAssistantResult('No readable text or speech synthesis is available.');
-      return;
-    }
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
-    setAssistantResult('Reading visible page text aloud.');
-  });
-  makeAssistantButton('Stop reading', () => {
-    window.speechSynthesis?.cancel();
-    setAssistantResult('Reading stopped.');
-  });
-  makeAssistantButton('Screenshot', () => requestAssistantAction('assistant-capture'));
-  assistantClose.addEventListener('click', () => toggleAssistantWidget(false));
-  askButton.addEventListener('click', askAssistant);
-  assistantQuestion.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') askAssistant();
-  });
 
   function applySettings(settings) {
     state.paused = Boolean(settings.paused);
@@ -1537,7 +1387,7 @@
       sendResponse({ ok: true, results: LIVIACore.findSceneElements(scene, request.query, request.limit || 3) });
       return false;
     }
-    if (request.type === 'scroll-element' || request.type === 'click-element') return handleSceneAction(request, sendResponse);
+    if (request.type === 'scroll-element' || request.type === 'click-element' || request.type === 'fill-search') return handleSceneAction(request, sendResponse);
     if (request.type === 'sync') {
       chrome.storage.local.get(['settings', 'avatar'], (result) => {
         applySettings(result.settings || {});
@@ -1637,6 +1487,35 @@
     if (changes.settings) applySettings(changes.settings.newValue || {});
     if (changes.avatar) applyAvatar(changes.avatar.newValue);
   });
+  document.addEventListener('pointermove', onPointerMove);
+  document.addEventListener('pointerdown', onPointerDown, true);
+  document.addEventListener('pointerup', onPointerUp, true);
+  document.addEventListener('contextmenu', onContextMenu, true);
+  document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', () => {
+    game.firing = false;
+    game.moveKeys = { up: false, down: false, left: false, right: false };
+  });
+  window.addEventListener('resize', () => {
+    resizeCanvas();
+    if (avatar.mode === 'play') refreshTargets();
+  });
+  window.addEventListener('scroll', () => {
+    if (avatar.mode !== 'play') return;
+    window.clearTimeout(scanTimer);
+    scanTimer = window.setTimeout(refreshTargets, 40);
+  }, { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      cancelAnimationFrame(frameId);
+      frameId = 0;
+    } else if (!frameId) {
+      lastFrameAt = 0;
+      frameId = requestAnimationFrame(animate);
+    }
+  });
   loadSettings();
   resizeCanvas();
+  frameId = requestAnimationFrame(animate);
 })();

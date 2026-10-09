@@ -3,11 +3,13 @@
 ## Implemented task path
 
 - `apps/web` is a task-first Next.js UI. It connects to a configured browser extension ID, shows the single page explicitly selected in the extension popup, displays bounded live-page evidence and relevant saved-page memory, and renders a validated model proposal.
+- On enabled pages, `Q` opens the extension's cascading glass task panel. It shares the same planner, memory retrieval, model selection, evidence rendering, and extension-owned approval flow as the web task workspace.
 - `apps/extension/background.js` is the browser-task boundary. It checks an explicit development-origin allowlist, verifies the selected tab and per-site permission for every request, strips page data into a bounded snapshot, retrieves relevant page memories, and proxies planning requests to the loopback agent. Browser content is untrusted input.
 - `apps/agent` binds to loopback, authenticates a bearer token, routes offline plans to Ollama, and optionally supports an HTTPS OpenAI-compatible provider such as OpenRouter. `/v1/plan` validates bounded JSON proposals; `/v1/providers` reports configured and installed model state without returning credentials.
 - Plan actions are limited to `inspect`, `scroll`, `click`, `search`, and `none`. `search` only fills a labeled, non-sensitive search input; it never submits. `click` is restricted to eligible same-page buttons. Scroll, click, and search-fill approvals open an extension-owned page outside the site DOM. Approval records are one-use and expire; the worker rechecks site permission and target, then records only a verified action outcome.
 - Page memories are created only after a user request and stay in extension-local storage. Search uses BM25-style ranking and optional local Ollama embeddings. No automatic crawling is implemented.
 - `externally_connectable` and `workspace-origins.js` currently allow `http://localhost:3000` and `http://127.0.0.1:3000`. The LIVIA workspace is excluded from extension injection and page inspection.
+- The optional shooting/destruction game remains available on enabled sites and in `/demo`; it is independent of task planning. The workspace origin itself never receives the game overlay.
 
 ## Privacy and safety boundaries
 

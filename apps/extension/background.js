@@ -1,4 +1,4 @@
-const contentFiles = ['core.js', 'livia-character.js', 'memory.js', 'content.js'];
+const contentFiles = ['core.js', 'livia-character.js', 'memory.js', 'assistant-panel.js', 'content.js'];
 const pendingInjections = new Map();
 const approvalLocks = new Set();
 importScripts('workspace-origins.js');
@@ -17,7 +17,7 @@ async function injectIntoTab(tab) {
   const pattern = sitePattern(tab?.url);
   if (!tab?.id) return { ok: false, error: 'No active browser tab was found.' };
   if (!pattern) return { ok: false, error: 'Chrome protects this page. Open a normal http:// or https:// website, then enable LIVIA there.' };
-  if (self.LIVIAWorkspaceOrigins.includes(new URL(tab.url).origin)) {
+  if (self.isLIVIAControlPage(tab.url)) {
     return { ok: false, error: 'The LIVIA task workspace does not receive a page overlay.' };
   }
 
@@ -86,10 +86,12 @@ function validWorkspaceRequest(request) {
   return Boolean(shape && Object.keys(request).every((key) => allowed.includes(key)) && shape.required.every((key) => Object.hasOwn(request, key)));
 }
 
-async function getEnabledPage(tabId) {
+async function getEnabledPage(tabId, requireWorkspaceSelection = true) {
   if (!Number.isInteger(tabId)) return { error: 'Choose a browser page first.' };
-  const selected = await chrome.storage.local.get('liviaWorkspaceTabId');
-  if (selected.liviaWorkspaceTabId !== tabId) return { error: 'Select this page from the LIVIA extension popup before using it in the workspace.' };
+  if (requireWorkspaceSelection) {
+    const selected = await chrome.storage.local.get('liviaWorkspaceTabId');
+    if (selected.liviaWorkspaceTabId !== tabId) return { error: 'Select this page from the LIVIA extension popup before using it in the workspace.' };
+  }
   const tab = await chrome.tabs.get(tabId);
   const pattern = sitePattern(tab.url);
   if (!tab.id || !pattern) return { error: 'This browser page cannot be inspected.' };
@@ -106,7 +108,7 @@ async function listWorkspacePages() {
   try {
     const access = await getEnabledPage(stored.liviaWorkspaceTabId);
     if (!access.tab) return { ok: true, pages: [] };
-    if (self.LIVIAWorkspaceOrigins.includes(new URL(access.tab.url).origin)) return { ok: true, pages: [] };
+    if (self.isLIVIAControlPage(access.tab.url)) return { ok: true, pages: [] };
     return {
       ok: true,
       pages: [{
@@ -177,8 +179,8 @@ async function retrievePageMemory(tabId, goal, token) {
   }
 }
 
-async function workspacePlan(request) {
-  const access = await getEnabledPage(request.tabId);
+async function workspacePlan(request, requireWorkspaceSelection = true) {
+  const access = await getEnabledPage(request.tabId, requireWorkspaceSelection);
   if (!access.tab) return { ok: false, error: access.error };
   const token = await getLocalAgent();
   if (!token) return { ok: false, error: 'Connect the local LIVIA agent from the extension popup before planning.' };
@@ -214,7 +216,7 @@ async function workspacePlan(request) {
   }
 }
 
-async function prepareWorkspaceAction(request) {
+async function prepareWorkspaceAction(request, requireWorkspaceSelection = true) {
   if (!['scroll', 'click', 'search'].includes(request.action) || typeof request.target !== 'string' || !request.target.trim() || request.target.length > 120 ||
     (request.action === 'search' && (typeof request.value !== 'string' || !request.value.trim() || request.value.length > 180))) {
     return { ok: false, error: 'Unsupported browser action.' };
@@ -222,7 +224,8 @@ async function prepareWorkspaceAction(request) {
   const stored = await chrome.storage.local.get('liviaLastPlan');
   const plan = stored.liviaLastPlan;
   if (!plan || plan.tabId !== request.tabId || Date.now() - plan.createdAt > 10 * 60_000) return { ok: false, error: 'The plan expired. Ask LIVIA to inspect the page again.' };
-  const access = await getEnabledPage(request.tabId);
+  if (request.planId && request.planId !== plan.id) return { ok: false, error: 'This proposal is no longer current. Ask LIVIA to plan again.' };
+  const access = await getEnabledPage(request.tabId, requireWorkspaceSelection);
   if (!access.tab) return { ok: false, error: access.error };
   const step = plan.plan.steps.find((item) => item.action === request.action && item.target === request.target && (request.action !== 'search' || item.value === request.value));
   if (!step) return { ok: false, error: 'That action is not part of the current plan.' };
@@ -241,6 +244,7 @@ async function prepareWorkspaceAction(request) {
       tabId: request.tabId,
       goal: plan.goal,
       action: request.action,
+      requireWorkspaceSelection,
       targetId: candidate.id,
       targetType: candidate.type,
       targetText: String(candidate.text || '').slice(0, 200),
@@ -267,7 +271,7 @@ async function prepareWorkspaceAction(request) {
 async function executeWorkspaceAction(approval, approved) {
   if (!approval || approval.expiresAt < Date.now()) return { ok: false, error: 'Approval expired. Prepare the action again.' };
   if (approved !== true) return { ok: true, declined: true, verified: false, error: 'Action was declined. Nothing was changed.' };
-  const access = await getEnabledPage(approval.tabId);
+  const access = await getEnabledPage(approval.tabId, approval.requireWorkspaceSelection !== false);
   if (!access.tab) return { ok: false, error: access.error };
   try {
     const result = await chrome.tabs.sendMessage(approval.tabId, {
@@ -313,7 +317,7 @@ async function getExtensionApproval(approvalId) {
   }
   try {
     const tab = await chrome.tabs.get(approval.tabId);
-    const access = await getEnabledPage(approval.tabId);
+    const access = await getEnabledPage(approval.tabId, approval.requireWorkspaceSelection !== false);
     if (!access.tab) return { ok: false, error: access.error };
     return {
       ok: true,
@@ -435,6 +439,54 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return false;
     }
     approveFromExtensionPage(request).then(sendResponse).catch(() => sendResponse({ ok: false, error: 'The approval could not be completed.' }));
+    return true;
+  }
+
+  if (request?.type === 'livia-assistant-plan') {
+    const tabId = sender.tab?.id;
+    if (!Number.isInteger(tabId) || typeof request.goal !== 'string' || !request.goal.trim() || request.goal.length > 1_000 ||
+      !['local', 'openrouter'].includes(request.provider) || (request.provider === 'openrouter' && request.allowRemoteContext !== true)) {
+      sendResponse({ ok: false, error: 'Enter a task, select an available model, and approve external context when requested.' });
+      return false;
+    }
+    workspacePlan({ tabId, goal: request.goal, provider: request.provider, allowRemoteContext: request.allowRemoteContext === true, progress: Array.isArray(request.progress) ? request.progress.slice(0, 6) : [] }, false)
+      .then(sendResponse).catch(() => sendResponse({ ok: false, error: 'LIVIA could not prepare a plan.' }));
+    return true;
+  }
+
+  if (request?.type === 'livia-assistant-status') {
+    handleWorkspaceRequest({ type: 'workspace-request', action: 'get-status' })
+      .then(sendResponse).catch(() => sendResponse({ ok: false, connected: false, providers: null, error: 'Could not check AI provider availability.' }));
+    return true;
+  }
+
+  if (request?.type === 'livia-assistant-prepare') {
+    const tabId = sender.tab?.id;
+    if (!Number.isInteger(tabId) || typeof request.planId !== 'string' || request.planId.length > 80 || typeof request.target !== 'string' || !['scroll', 'click', 'search'].includes(request.action)) {
+      sendResponse({ ok: false, error: 'Invalid proposed action.' });
+      return false;
+    }
+    prepareWorkspaceAction({ tabId, planId: request.planId, target: request.target, action: request.action, ...(typeof request.value === 'string' ? { value: request.value } : {}) }, false)
+      .then(sendResponse).catch(() => sendResponse({ ok: false, error: 'Could not prepare the action for approval.' }));
+    return true;
+  }
+
+  if (request?.type === 'livia-assistant-result') {
+    getWorkspaceActionResult(request.approvalId).then(sendResponse).catch(() => sendResponse({ ok: false, error: 'Could not check the approval result.' }));
+    return true;
+  }
+
+  if (request?.type === 'livia-assistant-cancel') {
+    cancelWorkspaceApproval(request.approvalId).then(sendResponse).catch(() => sendResponse({ ok: false, error: 'Could not cancel the approval.' }));
+    return true;
+  }
+
+  if (request?.type === 'livia-assistant-remember') {
+    const tabId = sender.tab?.id;
+    getEnabledPage(tabId, false).then((access) => {
+      if (!access.tab) return sendResponse({ ok: false, error: access.error });
+      return chrome.tabs.sendMessage(tabId, { type: 'remember-page' }).then(sendResponse);
+    }).catch(() => sendResponse({ ok: false, error: 'Could not save this page.' }));
     return true;
   }
 

@@ -6,6 +6,7 @@
 - Extension bridge limited to configured website origins and one popup-selected, per-site-authorized tab.
 - Offline Ollama planning, optional OpenAI-compatible external provider, explicit remote-page-context consent, local saved-page retrieval, and optional local embeddings.
 - Extension-owned, expiring, one-use approvals for safe scrolling, same-page button activation, and non-submitting search-field fills.
+- Q-key cascading glass task panel on enabled pages, sharing the task planner and approval flow.
 - Model-output validation, prompt-injection boundaries, local service availability checks, and no invented usage metrics.
 
 ## Next milestones
@@ -19,4 +20,4 @@
 
 ## Non-goals
 
-LIVIA's website is not a robot-avatar configurator, game demo, or unrestricted browser crawler. It should understand the selected page and user goal, propose a bounded plan, request permission, execute only supported actions, re-inspect the result, and state limitations honestly.
+LIVIA's primary experience is the Q-key/page task assistant and task workspace. The shooting game remains an optional, separate demo mode; it does not replace page understanding, planning, permission, and execution.

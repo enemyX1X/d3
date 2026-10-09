@@ -1,6 +1,7 @@
 'use client';
 
 import { startTransition, useCallback, useEffect, useState } from 'react';
+import LiviaPresence from '@/components/LiviaPresence';
 
 type ProviderStatus = { configured: boolean; available?: boolean; model: string | null };
 type PageTab = { tabId: number; title: string; origin: string; enabled: boolean };
@@ -93,6 +94,7 @@ export default function TaskWorkspace() {
   const selectedPage = pages.find((page) => page.tabId === tabId) || null;
   const localConfigured = Boolean(connected && providers?.local?.configured && providers.local.available);
   const remoteConfigured = Boolean(connected && providers?.openrouter?.configured);
+  const presenceState = prepared ? 'approval' : busy ? 'thinking' : connected && pages.length ? 'ready' : 'waiting';
 
   async function inspectPage() {
     if (tabId === null) return;
@@ -243,7 +245,7 @@ export default function TaskWorkspace() {
       </header>
 
       <div className="task-content">
-        <section className="task-intro"><div><p className="task-eyebrow">UNDERSTAND THE PAGE. PLAN WITH YOU. ACT WITH PERMISSION.</p><h1>What should I help you do?</h1><p>LIVIA reads only the browser page you select and have enabled. It proposes a plan first. You review every supported action before it happens.</p></div><div className="task-privacy"><span aria-hidden="true">◇</span><span>PAGE ACCESS IS PER-SITE<br />ACTIONS ARE APPROVAL-GATED</span></div></section>
+        <section className="task-intro"><div className="task-intro__copy"><p className="task-eyebrow">UNDERSTAND THE PAGE. PLAN WITH YOU. ACT WITH PERMISSION.</p><h1>What should I help you do?</h1><p>LIVIA reads only the browser page you select and have enabled. It proposes a plan first. You review every supported action before it happens.</p></div><LiviaPresence state={presenceState} /><div className="task-privacy"><span aria-hidden="true">◇</span><span>PAGE ACCESS IS PER-SITE<br />ACTIONS ARE APPROVAL-GATED</span></div></section>
 
         <section className="task-composer">
           <label className="task-label" htmlFor="task-goal">YOUR TASK</label>

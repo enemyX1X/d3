@@ -5,6 +5,7 @@ LIVIA is a local-first browser task assistant. It inspects one browser page that
 ## Browser task workflow
 
 - The website connects to the installed extension using `NEXT_PUBLIC_EXTENSION_ID`; the webpage never receives the local-agent bearer token or an external model key.
+- On an enabled page, press `Q` to open LIVIA's cascading glass task panel. Quick tasks and a free-form prompt use the same local/remote planner, page-memory retrieval, evidence display, and extension-owned approval flow as the website workspace.
 - The extension exposes only the page explicitly selected in its popup. Page snapshots are bounded and omit field values, hidden content, credentials, and most form controls.
 - Saved pages use local keyword ranking and optional Ollama embeddings. LIVIA does not crawl tabs or websites in the background; a page is saved only when requested.
 - Local Ollama is the default planner. An OpenRouter-compatible HTTPS endpoint can be configured on the local agent. Sending page evidence externally requires a separate consent checkbox.
@@ -12,6 +13,8 @@ LIVIA is a local-first browser task assistant. It inspects one browser page that
 - Scroll, click, and search-fill approvals open an extension-owned review page outside the website DOM. The extension rechecks the page permission and target, consumes each approval once, and reports an action only when it can verify the result. Overall task completion still requires fresh evidence; model text alone does not prove completion.
 
 This is not yet a durable cloud worker platform: there is no account system, database, cross-device sync, durable queue, isolated code/browser sandbox, OAuth integration, or independent completion evaluator. Do not use it for high-impact or sensitive workflows.
+
+The original shooting/destruction game remains available as an optional extension mode and at `/demo`; it is separate from the task assistant and is never injected into the website workspace itself.
 
 ## Local setup
 

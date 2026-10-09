@@ -35,7 +35,14 @@
   <body>
     <h1>LIVIA</h1>
     <div class="status">○ SITE ACCESS OFF</div>
-    <p class="note">Choose a task page, enable access for that site, then return to the LIVIA workspace to inspect, plan, and approve actions.</p>
+    <p class="note">Choose a task page and enable site access. Press Q on an enabled page for LIVIA's task assistant, or use the workspace to review page evidence and plans.</p>
+    <p class="note">Play arms visible text and images. Fire only when you click. Move with W/A/S/D; Space jumps to a target; M fires a missile. The webpage itself is never changed.</p>
+    <div class="grid">
+      <button data-action="transform">Transform</button>
+      <button data-action="play">Play</button>
+      <button data-action="companion">Companion</button>
+      <button data-action="rebuild">Rebuild</button>
+    </div>
     <button id="inspect">Inspect visible scene</button>
     <pre id="scene-report" class="scene-report" aria-live="polite" aria-hidden="true"></pre>
     <input id="find-query" placeholder="Find: largest image, main button" maxlength="120" aria-label="Find visible page element" />
@@ -71,6 +78,7 @@
       <button id="agent-vision" disabled>Analyze screenshot locally</button>
       <pre id="vision-response" class="memory-report" aria-live="polite" aria-hidden="true"></pre>
     </details>
+    <input id="command" placeholder="Ask LIVIA to transform or play" maxlength="200" aria-label="Companion command" />
     <button id="pause">Pause companion</button>
     <button id="site">Disable on this site</button>
     <button id="analysis">Disable page analysis</button>

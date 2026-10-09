@@ -25,9 +25,27 @@ function patternFor(tab) {
   try {
     const url = new URL(tab.url);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-    if (self.LIVIAWorkspaceOrigins.includes(url.origin)) return null;
+    if (self.isLIVIAControlPage(url.href)) return null;
     return `${url.protocol}//${url.hostname}/*`;
   } catch {
+    return null;
+  }
+}
+
+async function sendCommand(text) {
+  if (!state.sitePattern) {
+    setMessage('Open a normal website to use LIVIA.');
+    return null;
+  }
+  if (!state.siteGranted || state.disabledSites.includes(state.host)) {
+    setMessage('Enable LIVIA for this site first.');
+    return null;
+  }
+  if (!state.tabId) return null;
+  try {
+    return await chrome.tabs.sendMessage(state.tabId, { type: 'cmd', text });
+  } catch (error) {
+    setMessage(`Could not reach LIVIA on this tab: ${error instanceof Error ? error.message : String(error)}`);
     return null;
   }
 }
@@ -532,7 +550,7 @@ async function analyzeScreenshotLocally() {
 function renderState() {
   const isEnabled = state.siteGranted && !state.disabledSites.includes(state.host);
   statusEl.textContent = !state.sitePattern ? '○ OPEN A WEBSITE' : state.paused ? '○ PAUSED' : isEnabled ? '● ACTIVE' : '○ SITE ACCESS OFF';
-  document.getElementById('pause').textContent = state.paused ? 'Resume LIVIA page access' : 'Pause LIVIA page access';
+  document.getElementById('pause').textContent = state.paused ? 'Resume companion' : 'Pause companion';
   const siteButton = document.getElementById('site');
   siteButton.textContent = !state.sitePattern ? 'Open a webpage to enable' : isEnabled ? 'Disable on this site' : 'Enable on this site';
   siteButton.disabled = !state.sitePattern;
@@ -566,6 +584,16 @@ function renderState() {
   renderState();
   renderLocalAgent();
 })();
+
+document.querySelectorAll('[data-action]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const action = button.dataset.action;
+    const text = action === 'transform' ? 'become a spaceship' : action === 'play' ? "let's play" : action === 'rebuild' ? 'rebuild the scene' : 'companion mode';
+    const response = await sendCommand(text);
+    if (response?.ok) setMessage(action === 'play' ? `Sweeping ${response.targets} visible text/image targets.` : '');
+    else if (response?.error) setMessage(response.error);
+  });
+});
 
 document.getElementById('pause').addEventListener('click', async () => {
   state.paused = !state.paused;
@@ -633,5 +661,17 @@ document.getElementById('delete').addEventListener('click', async () => {
   Object.assign(state, { paused: false, disabledSites: [], analysisEnabled: true });
   renderState();
   setMessage('Local data deleted.');
+});
+
+document.getElementById('command').addEventListener('keydown', async (event) => {
+  if (event.key !== 'Enter') return;
+  const text = event.target.value.trim();
+  if (!text) return;
+  event.target.value = '';
+  const response = await sendCommand(text);
+  if (response) {
+    const startedSweep = response.ok && response.action?.action === 'game' && response.action.on;
+    setMessage(startedSweep ? `Sweeping ${response.targets} visible text/image targets.` : response.ok ? 'Done.' : response.error || 'Command failed.');
+  }
 });
 
