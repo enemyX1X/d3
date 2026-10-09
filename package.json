@@ -16,7 +16,7 @@
     "build:extension": "node scripts/package-extension.mjs",
     "test:extension": "node --test apps/extension/tests/*.test.cjs",
     "test:agent": "npm --workspace apps/agent run test",
-    "check:extension": "node --check apps/extension/core.js && node --check apps/extension/content.js && node --check apps/extension/background.js && node --check apps/extension/popup.js",
+    "check:extension": "node --check apps/extension/core.js && node --check apps/extension/content.js && node --check apps/extension/background.js && node --check apps/extension/popup.js && node --check apps/extension/approval.js && node --check apps/extension/workspace-origins.js",
     "validate": "npm run typecheck:web && npm run lint:web && npm run test:web && npm run test:extension && npm run test:agent && npm run check:extension && npm run build:extension && npm run build:web"
   },
   "devDependencies": {

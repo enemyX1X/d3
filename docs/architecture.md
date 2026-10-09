@@ -1,21 +1,22 @@
 # LIVIA architecture
 
-## Implemented runtime
+## Implemented task path
 
-- `apps/web` is a Next.js local workspace with profile controls, deterministic avatar commands, browser-local project notes, editable memory notes, an activity log, research links, and explicit service-configuration states. Workspace records live in browser `localStorage`; they are not account-backed or synchronized. The command API maps a small set of phrases to validated, deterministic actions; it does not call an AI provider.
-- `apps/extension` is a Manifest V3 extension. The popup requests optional host permission for the current site, the service worker injects the content layer only on granted sites, and the content layer owns rendering and page analysis. A bundled Three.js runtime loads the local robot model and textures; its Walk clip responds to companion movement and its Jump clip reacts to manual fire.
-- The content layer builds a temporary, in-memory scene from visible text and image alt labels only when Play mode is activated. Targets, projectiles, particles, score, reconstruction, and respawn exist only in the canvas overlay. The page DOM is not modified.
-- Avatar appearance and extension controls use `chrome.storage.local`; web profiles, project notes, memory notes, and activity use browser `localStorage`. These stores are separate and are not cloud-synchronized. The web command center can apply supported appearance changes; browser-scene actions still require the extension.
-- `packages/shared-types` currently contains type definitions, not a shared runtime messaging implementation.
+- `apps/web` is a task-first Next.js UI. It connects to a configured browser extension ID, shows the single page explicitly selected in the extension popup, displays bounded live-page evidence and relevant saved-page memory, and renders a validated model proposal.
+- `apps/extension/background.js` is the browser-task boundary. It checks an explicit development-origin allowlist, verifies the selected tab and per-site permission for every request, strips page data into a bounded snapshot, retrieves relevant page memories, and proxies planning requests to the loopback agent. Browser content is untrusted input.
+- `apps/agent` binds to loopback, authenticates a bearer token, routes offline plans to Ollama, and optionally supports an HTTPS OpenAI-compatible provider such as OpenRouter. `/v1/plan` validates bounded JSON proposals; `/v1/providers` reports configured and installed model state without returning credentials.
+- Plan actions are limited to `inspect`, `scroll`, `click`, `search`, and `none`. `search` only fills a labeled, non-sensitive search input; it never submits. `click` is restricted to eligible same-page buttons. Scroll, click, and search-fill approvals open an extension-owned page outside the site DOM. Approval records are one-use and expire; the worker rechecks site permission and target, then records only a verified action outcome.
+- Page memories are created only after a user request and stay in extension-local storage. Search uses BM25-style ranking and optional local Ollama embeddings. No automatic crawling is implemented.
+- `externally_connectable` and `workspace-origins.js` currently allow `http://localhost:3000` and `http://127.0.0.1:3000`. The LIVIA workspace is excluded from extension injection and page inspection.
 
-## Privacy boundary
+## Privacy and safety boundaries
 
-Host access is granted per site. Scene extraction is local and excludes forms, editable content, hidden elements, and common credential/payment fields. It does not inspect cross-origin iframe documents or send page content to the web app. Disabling page analysis ends Play mode but leaves the companion visible. Browser-protected pages remain inaccessible.
+Page snapshots are bounded and omit form contents, generic text inputs, hidden content, and common credential/payment fields. Only explicitly labeled search inputs are exposed as empty input controls, never with their existing values. Cross-origin iframe contents are not inspected. Remote-model planning requires a separate consent flag enforced in both the UI and extension boundary; provider keys remain server-side. Model output is treated as a proposal and validated against a strict schema. A page action requires a separate extension-owned user approval; submitting forms, external navigation, scripts, credentials, purchases, and destructive changes are not supported.
 
 ## Current limitations
 
-The avatar uses a local WebGL/Three.js scene layered with the 2D Canvas target and effects renderer; the webpage DOM remains untouched. This is not a full 3D world renderer. The command parser is not a language model. The local Ollama agent API is a separate process and is not connected to the web command center. There is no account/authentication flow, database, durable task queue, cloud execution sandbox, integration OAuth flow, or web-to-extension synchronization. Web profiles and notes are device-local UI records, not autonomous workers or model memory. These services require explicit infrastructure and authorization before they can be claimed as available.
+This is not yet a durable autonomous worker platform. There is no user identity/authentication, database, cloud sync, durable task queue, resumable multi-step scheduler, sandboxed shell/browser workspace, OAuth integration, or production domain allowlisting. The UI task state is session-only; page memories and action audit entries persist locally in extension storage. Supported actions are narrow, and an overall task is not independently certified complete. The local agent and extension must run on the same machine as the browser.
 
 ## Deployment
 
-Vercel's project root should be `apps/web`. The root `vercel.json` invokes the workspace's Next.js build and uses `.next` as the output directory. GitHub Actions typecheck, lint, test, and build the web app and run extension syntax/unit checks.
+The Next.js UI can be hosted on Vercel, but that alone cannot access a user's browser or local model. For a hosted UI, add its exact HTTPS origin to both the extension manifest's `externally_connectable.matches` and `workspace-origins.js`, rebuild and reload the extension, and allow the extension origin in `LIVIA_ALLOWED_ORIGINS`. The agent and extension remain separately installed local services in this implementation.

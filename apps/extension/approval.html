@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Review LIVIA action</title>
+    <link rel="stylesheet" href="approval.css" />
+  </head>
+  <body>
+    <main class="approval-shell">
+      <header><a class="brand" href="#"><span class="brand-mark">L</span><span><strong>LIVIA</strong><small>BROWSER ACTION REVIEW</small></span></a><span class="secure-label"><i></i>EXTENSION CONTROL</span></header>
+      <section class="approval-card" aria-live="polite">
+        <span class="eyebrow">USER APPROVAL REQUIRED</span>
+        <h1 id="heading">Checking this action…</h1>
+        <p id="description" class="description">Verifying the page and target with the LIVIA extension.</p>
+        <dl id="details" class="details" hidden>
+          <div><dt>YOUR GOAL</dt><dd id="goal"></dd></div>
+          <div><dt>PAGE</dt><dd id="page"></dd></div>
+          <div><dt>ORIGIN</dt><dd id="origin"></dd></div>
+          <div><dt>PROPOSED ACTION</dt><dd id="action"></dd></div>
+          <div><dt>VISIBLE TARGET</dt><dd id="target"></dd></div>
+          <div id="query-row" hidden><dt>QUERY TO FILL</dt><dd id="query"></dd></div>
+          <div><dt>MATCH CONFIDENCE</dt><dd id="confidence"></dd></div>
+        </dl>
+        <p id="warning" class="warning" hidden>Approving performs this single browser action now. The action may change page state; LIVIA will report success only if the extension observes a verifiable response.</p>
+        <div id="actions" class="actions" hidden>
+          <button id="decline" class="decline" type="button">Decline</button>
+          <button id="approve" class="approve" type="button">Approve this action</button>
+        </div>
+        <p id="result" class="result" role="status"></p>
+      </section>
+      <footer>Only this listed, same-page action can be executed. No form submissions, external navigation, or scripts.</footer>
+    </main>
+    <script src="approval.js"></script>
+  </body>
+</html>

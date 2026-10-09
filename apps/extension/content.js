@@ -53,7 +53,7 @@
 
   const overlay = document.createElement('div');
   overlay.id = 'livia-companion';
-  overlay.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;';
+  overlay.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;display:none;';
 
   const canvas = document.createElement('canvas');
   canvas.width = window.innerWidth;
@@ -948,7 +948,7 @@
       if (tag === 'img' || tag === 'picture' || tag === 'canvas' || role === 'img') return 'IMAGE';
       if (tag === 'video') return 'VIDEO';
       if (tag === 'iframe') return 'FRAME';
-      if (tag === 'input') return ['checkbox', 'radio', 'range'].includes(element.type) ? 'INPUT' : null;
+      if (tag === 'input') return ['checkbox', 'radio', 'range'].includes(element.type) || LIVIACore.isSafeSearchInput(element) ? 'INPUT' : null;
       if (tag === 'article' || ['article', 'listitem'].includes(role) || /\b(card|tile)\b/i.test(element.className || '')) return 'CARD';
       if (/^(h[1-6]|p|li|dt|dd|blockquote|figcaption)$/.test(tag) || ['heading', 'paragraph', 'note'].includes(role)) return 'TEXT';
       if (/^(main|section|header|footer|aside)$/.test(tag) || ['main', 'region', 'complementary'].includes(role)) return 'SECTION';
@@ -967,7 +967,7 @@
         if (element.closest?.('[contenteditable="true"], [role="textbox"], input[type="password"], textarea, [autocomplete="current-password"], [autocomplete="new-password"]')) continue;
         if (element.closest?.('form') && !['BUTTON', 'LINK', 'INPUT'].includes(type)) continue;
         if (!['BUTTON', 'LINK', 'INPUT'].includes(type) && LIVIACore.isSensitive(element)) continue;
-        if (element instanceof HTMLInputElement && !['checkbox', 'radio', 'range'].includes(element.type)) continue;
+        if (element instanceof HTMLInputElement && !['checkbox', 'radio', 'range'].includes(element.type) && !LIVIACore.isSafeSearchInput(element)) continue;
         if (element instanceof HTMLFormElement) continue;
 
         const style = window.getComputedStyle(element);
@@ -975,7 +975,7 @@
         if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05 || rect.width < 1 || rect.height < 1 || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) continue;
 
         const active = element === document.activeElement;
-        const accessibleLabel = element.getAttribute('aria-label') || element.getAttribute('alt') || element.getAttribute('title') || '';
+        const accessibleLabel = element.getAttribute('aria-label') || element.getAttribute('alt') || element.getAttribute('title') || (type === 'INPUT' ? element.getAttribute('placeholder') : '') || '';
         const text = type === 'INPUT' ? accessibleLabel : accessibleLabel || (type === 'TEXT' ? element.innerText || element.textContent || '' : element.innerText || '');
         let parentElement = element.parentElement || element.getRootNode?.().host || null;
         while (parentElement && !ids.has(parentElement)) {
@@ -1082,7 +1082,8 @@
 
   function getSceneActionTarget(id) {
     const element = sceneElementById.get(id);
-    if (!(element instanceof HTMLElement) || !element.isConnected || element.closest('form, [contenteditable="true"], [role="textbox"], [hidden], [inert], [aria-hidden="true"]')) return null;
+    if (!(element instanceof HTMLElement) || !element.isConnected || element.closest('[contenteditable="true"], [role="textbox"], [hidden], [inert], [aria-hidden="true"]')) return null;
+    if (element.closest('form') && !LIVIACore.isSafeSearchInput(element)) return null;
     const style = window.getComputedStyle(element);
     const bounds = element.getBoundingClientRect();
     if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05 || bounds.width < 1 || bounds.height < 1 || bounds.right <= 0 || bounds.bottom <= 0 || bounds.left >= window.innerWidth || bounds.top >= window.innerHeight) return null;
@@ -1122,6 +1123,28 @@
         sendResponse({ ok: verified, verified, error: verified ? undefined : 'Scroll target could not be brought into the viewport.' });
       }, 550);
       return true;
+    }
+    if (request.type === 'fill-search') {
+      if (!LIVIACore.isSafeSearchInput(element) || element.disabled || element.readOnly || !element.isConnected) {
+        sendResponse({ ok: false, error: 'The target is not an available, labeled search field.' });
+        return false;
+      }
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      if (!valueSetter) {
+        sendResponse({ ok: false, error: 'This browser cannot safely update the search field.' });
+        return false;
+      }
+      try {
+        element.focus();
+        valueSetter.call(element, request.value.trim());
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        const verified = element.value === request.value.trim();
+        sendResponse({ ok: verified, verified, error: verified ? undefined : 'The search field did not keep the approved query.' });
+      } catch {
+        sendResponse({ ok: false, error: 'The search field rejected the approved query.' });
+      }
+      return false;
     }
     if (!actionClickIsAllowed(element)) {
       sendResponse({ ok: false, error: 'For safety, LIVIA cannot activate form controls, external links, downloads, or new-tab links.' });
@@ -1614,35 +1637,6 @@
     if (changes.settings) applySettings(changes.settings.newValue || {});
     if (changes.avatar) applyAvatar(changes.avatar.newValue);
   });
-  document.addEventListener('pointermove', onPointerMove);
-  document.addEventListener('pointerdown', onPointerDown, true);
-  document.addEventListener('pointerup', onPointerUp, true);
-  document.addEventListener('contextmenu', onContextMenu, true);
-  document.addEventListener('keydown', onKeyDown);
-  document.addEventListener('keyup', onKeyUp);
-  window.addEventListener('blur', () => {
-    game.firing = false;
-    game.moveKeys = { up: false, down: false, left: false, right: false };
-  });
-  window.addEventListener('resize', () => {
-    resizeCanvas();
-    if (avatar.mode === 'play') refreshTargets();
-  });
-  window.addEventListener('scroll', () => {
-    if (avatar.mode !== 'play') return;
-    window.clearTimeout(scanTimer);
-    scanTimer = window.setTimeout(refreshTargets, 40);
-  }, { passive: true });
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      cancelAnimationFrame(frameId);
-      frameId = 0;
-    } else if (!frameId) {
-      lastFrameAt = 0;
-      frameId = requestAnimationFrame(animate);
-    }
-  });
   loadSettings();
   resizeCanvas();
-  frameId = requestAnimationFrame(animate);
 })();

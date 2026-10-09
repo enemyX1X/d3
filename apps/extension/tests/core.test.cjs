@@ -4,6 +4,11 @@ const core = require('../core.js');
 
 test('sensitive form controls and credential-like elements are excluded', () => {
   assert.equal(core.isSensitive({ tag: 'INPUT', type: 'text' }), true);
+  assert.equal(core.isSensitive({ tag: 'INPUT', type: 'search', name: 'q', placeholder: 'Search this site' }), false);
+  assert.equal(core.isSensitive({ tag: 'INPUT', type: 'text', name: 'query', placeholder: 'Search' }), false);
+  assert.equal(core.isSensitive({ tag: 'INPUT', type: 'search', name: 'email-search' }), true);
+  assert.equal(core.isSafeSearchInput({ tag: 'INPUT', type: 'search', name: 'q', placeholder: 'Search the site' }), true);
+  assert.equal(core.isSafeSearchInput({ tag: 'INPUT', type: 'text', name: 'email' }), false);
   assert.equal(core.isSensitive({ tag: 'DIV', id: 'session-token' }), true);
   assert.equal(core.isSensitive({ tag: 'DIV', isContentEditable: true }), true);
   assert.equal(core.isSensitive({ tag: 'P' }), false);
@@ -140,6 +145,8 @@ test('find-element validates typed queries and ranks spatial targets', () => {
     nodes: [
       { id: 'small-image', type: 'IMAGE', text: 'Logo', visible: true, bounds: { x: 5, y: 10, w: 40, h: 30 }, confidence: 0.9 },
       { id: 'large-image', type: 'IMAGE', text: 'Featured photo', visible: true, bounds: { x: 300, y: 200, w: 360, h: 260 }, confidence: 0.95 },
+      { id: 'site-search', type: 'INPUT', text: 'Search this site', visible: true, bounds: { x: 100, y: 20, w: 280, h: 36 }, confidence: 0.95 },
+      { id: 'hidden-input', type: 'INPUT', text: 'Search', visible: false, bounds: { x: 0, y: 0, w: 300, h: 40 }, confidence: 1 },
       { id: 'main-button', type: 'BUTTON', text: 'Apply now', visible: true, bounds: { x: 350, y: 360, w: 240, h: 56 }, confidence: 0.9 },
       { id: 'hidden-button', type: 'BUTTON', text: 'Hidden', visible: false, bounds: { x: 0, y: 0, w: 900, h: 900 }, confidence: 1 }
     ]
@@ -150,12 +157,16 @@ test('find-element validates typed queries and ranks spatial targets', () => {
   assert.equal(core.findSceneElements(scene, 'largest image')[0].id, 'large-image');
   assert.equal(core.findSceneElements(scene, 'main button')[0].id, 'main-button');
   assert.equal(core.findSceneElements(scene, 'top image')[0].id, 'small-image');
+  assert.equal(core.findSceneElements(scene, 'search field')[0].id, 'site-search');
   assert.equal(core.findSceneElements(scene, 'invisible button').length, 0);
 });
 
 test('browser actions require scene IDs and explicit confirmation for clicks', () => {
   assert.equal(core.validElementActionRequest({ type: 'scroll-element', id: 'scene-4-42' }), true);
   assert.equal(core.validElementActionRequest({ type: 'click-element', id: 'scene-4-42', confirmed: true }), true);
+  assert.equal(core.validElementActionRequest({ type: 'fill-search', id: 'scene-4-42', value: 'LIVIA project', confirmed: true }), true);
+  assert.equal(core.validElementActionRequest({ type: 'fill-search', id: 'scene-4-42', value: 'x'.repeat(181), confirmed: true }), false);
+  assert.equal(core.validElementActionRequest({ type: 'fill-search', id: 'scene-4-42', value: 'LIVIA project' }), false);
   assert.equal(core.validElementActionRequest({ type: 'click-element', id: 'scene-4-42' }), false);
   assert.equal(core.validElementActionRequest({ type: 'click-element', id: 'scene-4-42', confirmed: true, script: 'x' }), false);
   assert.equal(core.validElementActionRequest({ type: 'click-element', id: 'scene-9999999999999-42', confirmed: true }), false);

@@ -59,15 +59,22 @@
     const id = element.getAttribute?.('id') || element.id || '';
     const autocomplete = element.getAttribute?.('autocomplete') || element.autocomplete || '';
     const role = element.getAttribute?.('role') || element.role || '';
-    const identity = `${name} ${id} ${autocomplete}`.toLowerCase();
+    const identity = `${name} ${id} ${autocomplete} ${element.getAttribute?.('placeholder') || element.placeholder || ''} ${element.getAttribute?.('aria-label') || ''}`.toLowerCase();
 
-    if (skip.has(tag)) return true;
     if (String(element.type || '').toLowerCase() === 'password') return true;
     if (/^(cc-|one-time-code|current-password|new-password|webauthn)/.test(String(autocomplete).toLowerCase())) return true;
     if (/(password|passwd|token|secret|credit.?card|card.?number|cvv|cvc|otp|one.?time.?code)/.test(identity)) return true;
+    const inputType = String(element.type || '').toLowerCase();
+    const safeSearchInput = tag === 'INPUT' && ['search', 'text'].includes(inputType) && /\b(search|query|find)\b/.test(identity) && !/(email|phone|address|user.?name)/.test(identity);
+    if (skip.has(tag) && !safeSearchInput) return true;
     if (element.editable === true || element.isContentEditable === true || element.contentEditable === 'true') return true;
     if (String(role).toLowerCase() === 'textbox') return true;
     return false;
+  }
+
+  function isSafeSearchInput(element) {
+    if (!element || String(element.tagName || element.tag || '').toUpperCase() !== 'INPUT' || isSensitive(element)) return false;
+    return ['search', 'text'].includes(String(element.type || '').toLowerCase());
   }
 
   function isPrimaryViewportCandidate(element, rect, viewportWidth, viewportHeight) {
@@ -181,6 +188,7 @@
     if (!request || typeof request !== 'object' || typeof request.id !== 'string' || !/^scene-\d{1,12}-\d{1,4}$/.test(request.id)) return false;
     if (request.type === 'scroll-element') return Object.keys(request).every((key) => ['type', 'id'].includes(key));
     if (request.type === 'click-element') return Object.keys(request).every((key) => ['type', 'id', 'confirmed'].includes(key)) && request.confirmed === true;
+    if (request.type === 'fill-search') return Object.keys(request).every((key) => ['type', 'id', 'value', 'confirmed'].includes(key)) && request.confirmed === true && typeof request.value === 'string' && request.value.trim().length > 0 && request.value.length <= 180;
     return false;
   }
 
@@ -212,15 +220,15 @@
     const aliases = new Map([
       ['button', 'BUTTON'], ['buttons', 'BUTTON'], ['image', 'IMAGE'], ['images', 'IMAGE'], ['picture', 'IMAGE'],
       ['pictures', 'IMAGE'], ['video', 'VIDEO'], ['videos', 'VIDEO'], ['link', 'LINK'], ['links', 'LINK'],
-      ['text', 'TEXT'], ['card', 'CARD'], ['cards', 'CARD'], ['input', 'INPUT'], ['icon', 'ICON']
+      ['text', 'TEXT'], ['card', 'CARD'], ['cards', 'CARD'], ['input', 'INPUT'], ['search', 'INPUT'], ['query', 'INPUT'], ['icon', 'ICON']
     ]);
     const requestedTypes = new Set(words.map((word) => aliases.get(word)).filter(Boolean));
-    const spatialWords = new Set(['largest', 'biggest', 'smallest', 'top', 'bottom', 'left', 'right', 'center', 'centre', 'middle', 'main', 'first', 'last', 'find', 'show', 'identify', 'the', 'a', 'an', 'please']);
+    const spatialWords = new Set(['largest', 'biggest', 'smallest', 'top', 'bottom', 'left', 'right', 'center', 'centre', 'middle', 'main', 'first', 'last', 'find', 'show', 'identify', 'the', 'a', 'an', 'please', 'field', 'input', 'box']);
     const searchWords = words.filter((word) => !aliases.has(word) && !spatialWords.has(word));
     const mode = words.find((word) => ['largest', 'biggest', 'smallest', 'top', 'bottom', 'left', 'right', 'center', 'centre', 'middle', 'main', 'first', 'last'].includes(word));
     let candidates = scene.nodes.map((node, index) => ({ node, index })).filter(({ node }) => node?.visible === true && node.type !== 'PAGE');
     if (requestedTypes.size) candidates = candidates.filter(({ node }) => requestedTypes.has(node.type));
-    else candidates = candidates.filter(({ node }) => ['TEXT', 'IMAGE', 'VIDEO', 'BUTTON', 'LINK', 'CARD', 'ICON'].includes(node.type));
+    else candidates = candidates.filter(({ node }) => ['TEXT', 'IMAGE', 'VIDEO', 'BUTTON', 'LINK', 'CARD', 'ICON', 'INPUT'].includes(node.type));
 
     candidates = candidates.map(({ node, index }) => {
       const searchable = `${node.text || ''} ${node.semanticRole || ''} ${node.type}`.toLowerCase();
@@ -445,7 +453,7 @@
     }));
   }
 
-  const api = { FORMS, parse, valid, isSensitive, isPrimaryViewportCandidate, needsTargetMask, createSceneGraph, validSceneRequest, validFindElementRequest, validElementActionRequest, canActivateSceneElement, verifyElementAction, findSceneElements, createLocalContextPrompt, aim, rebuildProgress, points, planSceneClear, hitTest, hitTestSegment, createFragments, createTextDebris, createGlassShards, createSmoke };
+  const api = { FORMS, parse, valid, isSensitive, isSafeSearchInput, isPrimaryViewportCandidate, needsTargetMask, createSceneGraph, validSceneRequest, validFindElementRequest, validElementActionRequest, canActivateSceneElement, verifyElementAction, findSceneElements, createLocalContextPrompt, aim, rebuildProgress, points, planSceneClear, hitTest, hitTestSegment, createFragments, createTextDebris, createGlassShards, createSmoke };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

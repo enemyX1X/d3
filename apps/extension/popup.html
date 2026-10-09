@@ -35,15 +35,7 @@
   <body>
     <h1>LIVIA</h1>
     <div class="status">○ SITE ACCESS OFF</div>
-    <p class="note">LIVIA reads enabled pages locally. Page memory is saved only when you ask.</p>
-    <p class="note">Play arms visible text lines and images; nothing is destroyed until you fire. Hold left click or Space for golden rounds; right click or M launches a missile. Sound is local.</p>
-    <p class="note">Hit every target to see your clear time and score. The LIVIA overlay then blanks for 60 seconds; the webpage itself is unchanged.</p>
-    <div class="grid">
-      <button data-action="transform">Transform</button>
-      <button data-action="play">Play</button>
-      <button data-action="companion">Companion</button>
-      <button data-action="rebuild">Rebuild</button>
-    </div>
+    <p class="note">Choose a task page, enable access for that site, then return to the LIVIA workspace to inspect, plan, and approve actions.</p>
     <button id="inspect">Inspect visible scene</button>
     <pre id="scene-report" class="scene-report" aria-live="polite" aria-hidden="true"></pre>
     <input id="find-query" placeholder="Find: largest image, main button" maxlength="120" aria-label="Find visible page element" />
@@ -79,12 +71,12 @@
       <button id="agent-vision" disabled>Analyze screenshot locally</button>
       <pre id="vision-response" class="memory-report" aria-live="polite" aria-hidden="true"></pre>
     </details>
-    <input id="command" placeholder='Say: "become a spaceship"' maxlength="200" />
     <button id="pause">Pause companion</button>
     <button id="site">Disable on this site</button>
     <button id="analysis">Disable page analysis</button>
     <button id="delete">Delete local data</button>
     <div class="message" id="message"></div>
+    <script src="workspace-origins.js"></script>
     <script src="core.js"></script>
     <script src="memory.js"></script>
     <script src="popup.js"></script>

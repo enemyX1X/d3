@@ -1,73 +1,42 @@
 # LIVIA
 
-LIVIA (Living Interactive Virtual Intelligence Avatar) is an early browser-extension MVP with a companion web app. The extension runs a local WebGL character and Canvas gameplay overlay on sites the user explicitly enables.
+LIVIA is a local-first browser task assistant. It inspects one browser page that the user has explicitly enabled, retrieves relevant pages saved in extension-local memory, asks a local or configured compatible model to propose a plan, and routes supported actions through an extension-owned approval screen.
 
-## What works today
+## Browser task workflow
 
-- A Manifest V3 extension requests access one site at a time and injects only on granted HTTP/HTTPS sites.
-- The supplied animated robot follows the pointer; its Walk animation responds to movement and its Jump animation reacts to manual fire.
-- Character scale and accent color are stored in extension-local storage and shared across enabled tabs.
-- Play mode creates local virtual targets from visible headings, paragraphs, links, list items, and image alt text. Clicking fires overlay-only projectiles; hits score, produce capped particle effects, and targets rebuild or respawn.
-- Page analysis excludes form content, editable controls, hidden content, and common credential/payment fields. Scene data stays in the content script and is not sent to the web app or a model.
-- The dashboard stores avatar configuration in that browser's local storage and can export a JSON configuration file.
+- The website connects to the installed extension using `NEXT_PUBLIC_EXTENSION_ID`; the webpage never receives the local-agent bearer token or an external model key.
+- The extension exposes only the page explicitly selected in its popup. Page snapshots are bounded and omit field values, hidden content, credentials, and most form controls.
+- Saved pages use local keyword ranking and optional Ollama embeddings. LIVIA does not crawl tabs or websites in the background; a page is saved only when requested.
+- Local Ollama is the default planner. An OpenRouter-compatible HTTPS endpoint can be configured on the local agent. Sending page evidence externally requires a separate consent checkbox.
+- Plans are schema-validated and treated as proposals. Supported actions are scrolling, activating a matching safe same-page button, and filling a clearly labeled search field with an approved query. Search is never submitted automatically. Form submission, arbitrary scripts, external navigation, credential entry, purchases, and destructive actions are not supported.
+- Scroll, click, and search-fill approvals open an extension-owned review page outside the website DOM. The extension rechecks the page permission and target, consumes each approval once, and reports an action only when it can verify the result. Overall task completion still requires fresh evidence; model text alone does not prove completion.
 
-## Not implemented
+This is not yet a durable cloud worker platform: there is no account system, database, cross-device sync, durable queue, isolated code/browser sandbox, OAuth integration, or independent completion evaluator. Do not use it for high-impact or sensitive workflows.
 
-There is no account system, cloud database or sync, real AI/model integration, image understanding, full 3D world renderer, cross-device persistence, or native desktop integration. The command interpreter is a small deterministic phrase parser. The dashboard does not currently configure the extension. Do not treat this MVP as a production service for sensitive workflows.
+## Local setup
 
-## Development
-
-Requirements: Node.js 20 or later.
+Requirements: Node.js 20 or later, Chrome or Edge, and Ollama for offline planning.
 
 ```bash
 npm install
-npm run dev:web
 ```
 
-Run all repository checks with:
+1. Copy `.env.example` to `.env`. Set a unique `LIVIA_AGENT_TOKEN` (32+ characters), set `LIVIA_ALLOWED_ORIGINS` to `http://localhost:3000,chrome-extension://<extension-id>`, and choose an installed local model, for example `LIVIA_MODEL_SMART=qwen3:4b`. The agent listens only on `127.0.0.1:4317`.
+2. Start Ollama and pull the configured model, for example `ollama pull qwen3:4b`.
+3. Build the extension with `npm run build:extension`, then load `dist/livia-extension` from `chrome://extensions` with Developer mode enabled. Copy its displayed ID.
+4. Put `NEXT_PUBLIC_EXTENSION_ID=<extension-id>` in `apps/web/.env.local`, then start the services in separate terminals: `npm run dev:agent` and `npm run dev:web`.
+5. Open an ordinary website, use the LIVIA toolbar popup to enable that site and connect the local model with the same token, then return to `http://localhost:3000` and refresh the extension connection. The task workspace does not receive the old avatar/game overlay.
+
+Optional compatible remote model configuration stays server-side in `.env`: set `AI_PROVIDER_API_KEY`, `AI_PROVIDER_BASE_URL` (defaults to OpenRouter), and `AI_PROVIDER_MODEL`, then restart the agent. Never use a `NEXT_PUBLIC_` prefix for provider credentials. For OpenRouter, use its HTTPS API base and a model identifier supported by that account. Remote page evidence is sent only after explicit user consent.
+
+To host the website outside localhost, add that exact HTTPS origin to `apps/extension/workspace-origins.js` and the `externally_connectable.matches` list in `apps/extension/manifest.json`, rebuild/reload the extension, and allow the matching extension origin in `LIVIA_ALLOWED_ORIGINS`. Chrome requires a user gesture to load an unpacked extension; a web deployment cannot install it silently.
+
+## Checks and deployment
 
 ```bash
 npm run validate
 ```
 
-This runs web typechecking, lint, web tests, extension tests and syntax checks, and the production web build.
+Vercel can host the Next.js website with project root `apps/web`. The browser extension and `apps/agent` must run separately on the user's machine for local browser tasks. Deploying only to Vercel does not provide access to a user's browser tabs, local Ollama instance, or extension permissions. The task bridge is currently allowlisted for the two localhost development origins.
 
-## Install the extension locally
-
-Build a clean extension folder first:
-
-```bash
-npm run build:extension
-```
-
-1. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
-2. Enable Developer mode.
-3. Choose **Load unpacked** and select the generated `dist/livia-extension` folder. Do not select the repository root.
-4. Leave `chrome://extensions`, open an ordinary page such as `https://example.com`, open the LIVIA popup, and choose **Enable on this site**. Browser pages like `chrome://extensions` are protected and cannot host the companion.
-5. Choose **Play** to arm visible DOM text lines and images in the viewport; nothing is destroyed until you fire. Use **W/A/S/D** to move the robot, move the pointer to aim, and press **Space** to jump beside the next live asset. Click/hold fires continuous golden rounds; right-click or **M** fires a locally guided missile. Press **Q** to open LIVIA's transparent page assistant for a local visible-text summary, read aloud, Google News search, Google Translate, or screenshot. News and translation open Google in a new tab; page text is not uploaded to an AI service. Text becomes glyph debris and smoke; image copies break into glass-like shards and smoke. Hit every target to see your clear time and score over a blank LIVIA overlay for 60 seconds. The webpage DOM is never changed.
-
-Browser-protected pages (such as browser settings and extension stores) do not allow injection. Site permission can be revoked in the popup or browser extension settings.
-
-Chrome requires a user gesture to load an unpacked extension; a website cannot install it silently. Automatic one-click distribution requires publishing through the Chrome Web Store (and the equivalent store for other browsers).
-
-## Vercel deployment
-
-Import the GitHub repository into Vercel with the web project root set to `apps/web`. The project uses Next.js, `npm install`, `npm run build`, and `.next` output. No production environment variables are currently required. Add authentication, database, and AI-provider variables only when those services are actually integrated.
-
-## Privacy and security
-
-- Site access is optional and granted per site.
-- The extension does not inspect form contents or cross-origin iframe contents.
-- Page-derived data stays in the tab unless the user explicitly saves a page, checks page context for a local prompt, or clicks screenshot analysis; those flows send only to the loopback agent.
-- Browser clicks are restricted to confirmed visible same-origin buttons/links outside forms, and success is reported only when a page change is observed. Arbitrary JavaScript is never executed.
-- See [SECURITY.md](SECURITY.md) for vulnerability reporting.
-
-Deploying the web app does not install the browser extension; users must load the unpacked extension separately.
-
-## Local AI agent
-
-The separate `apps/agent` service binds to `127.0.0.1` and proxies bounded requests to local Ollama, whisper.cpp, and Piper services. It requires a bearer token and an exact allowed-origin list; it does not receive browser page content unless a user explicitly requests screenshot/context analysis. No cloud model key is required.
-
-Copy `.env.example` to `.env`, replace `LIVIA_AGENT_TOKEN` with a unique random value of at least 32 characters, set the allowed extension origin to `chrome-extension://<id>` using the ID shown on `chrome://extensions`, and configure local model paths. Install the configured Ollama models, run whisper.cpp server bound to `127.0.0.1:8080`, install Piper and its voice model, then run `npm run dev:agent`. The agent health endpoint is `http://127.0.0.1:4317/health`; the Vercel-safe web health endpoint is `/api/health`.
-
-In the extension popup, open **Local AI**, connect with the same token, and grant loopback access. Microphone recording uses local RMS silence detection and stops after 15 seconds; it transcribes locally, and you review the transcript before sending it to Ollama. Screenshot analysis requires a separate click. Page memory uses BM25 keyword ranking by default and adds Ollama cosine embeddings when `LIVIA_MODEL_EMBEDDING` is configured; embeddings and page memories stay in extension-local storage. **Find visible element** supports spatial queries; scrolling is verified, and clicks require a separate confirmation and are limited to safe same-origin controls.
+See [docs/architecture.md](docs/architecture.md) for implemented boundaries and [SECURITY.md](SECURITY.md) for vulnerability reporting.

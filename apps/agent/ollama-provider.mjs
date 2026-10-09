@@ -5,13 +5,21 @@ export function createOllamaProvider({ baseUrl = 'http://127.0.0.1:11434', fetch
   }
   const endpoint = `${parsed.origin}/api/chat`;
   const embeddingEndpoint = `${parsed.origin}/api/embed`;
+  const modelsEndpoint = `${parsed.origin}/api/tags`;
 
   return {
-    async chat({ model, messages }) {
+    async models() {
+      const response = await fetchImpl(modelsEndpoint, { signal: AbortSignal.timeout(Math.min(timeoutMs, 5_000)) });
+      if (!response.ok) throw new Error('Ollama model listing failed.');
+      const payload = await response.json();
+      if (!Array.isArray(payload?.models)) throw new Error('Ollama returned an invalid model list.');
+      return payload.models.map((item) => typeof item?.name === 'string' ? item.name : '').filter(Boolean).slice(0, 200);
+    },
+    async chat({ model, messages, jsonMode = false }) {
       const response = await fetchImpl(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ model, messages, stream: false }),
+        body: JSON.stringify({ model, messages, stream: false, ...(jsonMode ? { format: 'json' } : {}) }),
         signal: AbortSignal.timeout(timeoutMs)
       });
       if (!response.ok) throw new Error('Ollama request failed.');
