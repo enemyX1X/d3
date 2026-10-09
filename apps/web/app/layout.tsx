@@ -2,12 +2,12 @@ import './globals.css';
 import type { Metadata, Viewport } from 'next';
 
 export const metadata: Metadata = {
-  title: 'LIVIA | Living Interactive Virtual Intelligence Avatar',
-  description: 'A persistent AI companion that follows you, transforms, plays, creates and rebuilds the digital world around you.'
+  title: 'LIVIA | Local AI Workspace',
+  description: 'A local-first companion workspace for profiles, project notes, browser controls, and transparent service status.'
 };
 
 export const viewport: Viewport = {
-  themeColor: '#05070d'
+  themeColor: '#101310'
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
